@@ -965,6 +965,7 @@ def set_model_type(args: Union[SftArguments, InferArguments]) -> None:
             v['model_id_or_path'].lower(): k
             for k, v in MODEL_MAPPING.items()
         }
+        print(model_mapping_reversed)
         model_id_or_path = args.model_id_or_path
         model_id_or_path_lower = model_id_or_path.lower()
         if model_id_or_path_lower not in model_mapping_reversed:
