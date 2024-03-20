@@ -44,8 +44,11 @@ def save_checkpoint(model: Optional[PreTrainedModel],
             if model_dir is None:
                 continue
             src_path = os.path.join(model_dir, fname)
-            if os.path.exists(src_path):
+            if os.path.isfile(src_path):
                 shutil.copy(src_path, tgt_path)
+                break
+            elif os.path.isdir(src_path):
+                shutil.copytree(src_path, tgt_path)
                 break
     # configuration.json
     configuration_fname = 'configuration.json'
@@ -254,6 +257,10 @@ def llm_infer(args: InferArguments) -> None:
         if args.overwrite_generation_config:
             assert args.ckpt_dir is not None, 'args.ckpt_dir is not specified.'
             model.generation_config.save_pretrained(args.ckpt_dir)
+    lora_request = None
+    if args.vllm_enable_lora:
+        assert len(args.vllm_lora_request_list) == 1
+        lora_request = args.vllm_lora_request_list[0]
     # Inference
     result = []
     jsonl_path = None
@@ -325,8 +332,11 @@ def llm_infer(args: InferArguments) -> None:
                     'system': system
                 }]
                 if args.stream:
-                    gen = inference_stream_vllm(llm_engine, template,
-                                                request_list)
+                    gen = inference_stream_vllm(
+                        llm_engine,
+                        template,
+                        request_list,
+                        lora_request=lora_request)
                     print_idx = 0
                     for resp_list in gen:
                         response = resp_list[0]['response']
@@ -336,17 +346,18 @@ def llm_infer(args: InferArguments) -> None:
                             print_idx = len(response)
                     print()
                 else:
-                    resp_list = inference_vllm(llm_engine, template,
-                                               request_list)
+                    resp_list = inference_vllm(
+                        llm_engine,
+                        template,
+                        request_list,
+                        lora_request=lora_request)
                     response = resp_list[0]['response']
                     new_history = resp_list[0]['history']
                     print(response)
             else:
                 if args.stop_words:
                     infer_kwargs['stop_words'] = args.stop_words
-                template_info = TEMPLATE_MAPPING[args.template_type]
-                support_stream = template_info.get('support_stream', True)
-                if args.stream and support_stream:
+                if args.stream:
                     gen = inference_stream(model, template, query, history,
                                            system, **infer_kwargs)
                     print_idx = 0
@@ -434,7 +445,10 @@ def llm_infer(args: InferArguments) -> None:
                     assert args.stream is True
                     if args.verbose:
                         print(f"[QUERY]{data['query']}\n[RESPONSE]", end='')
-                    gen = inference_stream_vllm(llm_engine, template, [kwargs])
+                    gen = inference_stream_vllm(
+                        llm_engine,
+                        template, [kwargs],
+                        lora_request=lora_request)
                     print_idx = 0
                     for resp_list in gen:
                         response = resp_list[0]['response']
