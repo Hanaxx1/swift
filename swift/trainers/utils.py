@@ -7,15 +7,18 @@ from typing import List, Union
 
 from torch.nn import Module
 from transformers.trainer_callback import TrainerCallback
-from transformers.trainer_utils import (EvaluationStrategy, FSDPOption,
-                                        HPSearchBackend, HubStrategy,
-                                        IntervalStrategy, SchedulerType)
+from transformers.trainer_utils import (EvaluationStrategy, FSDPOption, HPSearchBackend, HubStrategy, IntervalStrategy,
+                                        SchedulerType)
+
+from swift.utils import get_logger
 
 try:
     # https://github.com/huggingface/transformers/pull/25702
     from transformers.trainer_utils import ShardedDDPOption
 except ImportError:
     ShardedDDPOption = None
+
+logger = get_logger()
 
 
 def can_return_loss(model: Module) -> bool:
@@ -32,16 +35,12 @@ def find_labels(model: Module) -> List[str]:
     model_name = model.__class__.__name__
     signature = inspect.signature(model.forward)
     if 'QuestionAnswering' in model_name:
-        return [
-            p for p in signature.parameters
-            if 'label' in p or p in ('start_positions', 'end_positions')
-        ]
+        return [p for p in signature.parameters if 'label' in p or p in ('start_positions', 'end_positions')]
     else:
         return [p for p in signature.parameters if 'label' in p]
 
 
-def get_function(
-        method_or_function: Union[MethodType, FunctionType]) -> FunctionType:
+def get_function(method_or_function: Union[MethodType, FunctionType]) -> FunctionType:
     if isinstance(method_or_function, MethodType):
         method_or_function = method_or_function.__func__
     return method_or_function

@@ -9,7 +9,7 @@ NPROC_PER_NODE=$nproc_per_node \
 swift sft \
     --model_type yi-9b \
     --sft_type lora \
-    --tuner_backend swift \
+    --tuner_backend peft \
     --template_type default \
     --dtype AUTO \
     --output_dir output \
@@ -26,6 +26,7 @@ swift sft \
     --lora_modules_to_save EMBEDDING LN \
     --gradient_checkpointing true \
     --batch_size 1 \
+    --weight_decay 0.1 \
     --weight_decay 0.1 \
     --learning_rate 5e-5 \
     --gradient_accumulation_steps $(expr 16 / $nproc_per_node) \

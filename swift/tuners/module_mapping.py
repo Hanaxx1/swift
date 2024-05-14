@@ -59,6 +59,18 @@ BLUELM_KEYS = LLAMA_KEYS
 ZIYA_KEYS = LLAMA_KEYS
 SKYWORK_KEYS = LLAMA_KEYS
 
+INTERNLM2_KEYS = ModelKeys(
+    **{
+        'module_list': 'model.layers',
+        'mlp': 'model.layers.{}.feed_forward',
+        'down_proj': 'model.layers.{}.feed_forward.w2',
+        'attention': 'model.layers.{}.attention',
+        'o_proj': 'model.layers.{}.attention.wo',
+        'qkv_proj': 'model.layers.{}.attention.wqkv',
+        'embedding': 'model.tok_embeddings',
+        'output': 'output',
+    })
+
 CHATGLM_KEYS = ModelKeys(
     **{
         'module_list': 'transformer.encoder.layers',
@@ -66,8 +78,7 @@ CHATGLM_KEYS = ModelKeys(
         'down_proj': 'transformer.encoder.layers.{}.mlp.dense_4h_to_h',
         'attention': 'transformer.encoder.layers.{}.self_attention',
         'o_proj': 'transformer.encoder.layers.{}.self_attention.dense',
-        'qkv_proj':
-        'transformer.encoder.layers.{}.self_attention.query_key_value',
+        'qkv_proj': 'transformer.encoder.layers.{}.self_attention.query_key_value',
         'embedding': 'transformer.embedding',
         'output': 'transformer.output_layer',
     })
@@ -140,6 +151,7 @@ MODEL_KEYS_MAPPING = OrderedDict([
     ('qwen1half', QWEN2_KEYS),
     ('yi', YI_KEYS),
     ('gemma', GEMMA_KEYS),
+    ('internlm2', INTERNLM2_KEYS),
     ('internlm', INTERNLM_KEYS),
     ('deepseek', DEEPSEEK_KEYS),
     ('openbuddy', OPENBUDDY_KEYS),

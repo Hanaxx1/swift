@@ -5,10 +5,10 @@ CUDA_VISIBLE_DEVICES=0 \
 python llm_sft.py \
     --model_type qwen1half-7b-chat \
     --sft_type lora \
-    --tuner_backend swift \
+    --tuner_backend peft \
     --dtype AUTO \
     --output_dir output \
-    --dataset ms-bench-mini \
+    --dataset alpaca-zh alpaca-en \
     --train_dataset_sample 5000 \
     --num_train_epochs 2 \
     --max_length 1024 \
@@ -19,7 +19,7 @@ python llm_sft.py \
     --lora_target_modules ALL \
     --gradient_checkpointing true \
     --batch_size 1 \
-    --weight_decay 0.01 \
+    --weight_decay 0.1 \
     --learning_rate 1e-4 \
     --gradient_accumulation_steps 16 \
     --max_grad_norm 0.5 \

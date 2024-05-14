@@ -22,14 +22,13 @@ swift sft \
     --lora_target_modules ALL \
     --gradient_checkpointing true \
     --batch_size 1 \
-    --weight_decay 0.01 \
+    --weight_decay 0.1 \
     --learning_rate 1e-4 \
     --gradient_accumulation_steps $(expr 16 / $nproc_per_node) \
     --max_grad_norm 0.5 \
     --warmup_ratio 0.03 \
     --eval_steps 100 \
     --save_steps 100 \
-    --save_only_model true \
     --save_total_limit 2 \
     --logging_steps 10 \
     --use_flash_attn false \

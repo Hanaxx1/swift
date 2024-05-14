@@ -1,14 +1,13 @@
 # Experimental environment: A10, 3090
 # 16GB GPU memory
 # Recommended to use `qwen_14b_chat_int4`
-PYTHONPATH=../../.. \
 CUDA_VISIBLE_DEVICES=0 \
-python llm_sft.py \
+swift sft \
     --model_id_or_path qwen/Qwen-14B-Chat \
     --model_revision master \
     --sft_type lora \
-    --tuner_backend swift \
-    --template_type qwen \
+    --tuner_backend peft \
+    --template_type AUTO \
     --dtype AUTO \
     --output_dir output \
     --dataset blossom-math-zh \
@@ -24,7 +23,7 @@ python llm_sft.py \
     --lora_target_modules ALL \
     --gradient_checkpointing true \
     --batch_size 1 \
-    --weight_decay 0.01 \
+    --weight_decay 0.1 \
     --learning_rate 1e-4 \
     --gradient_accumulation_steps 16 \
     --max_grad_norm 0.5 \

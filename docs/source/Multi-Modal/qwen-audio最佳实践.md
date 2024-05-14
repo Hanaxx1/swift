@@ -9,7 +9,7 @@
 
 ## 环境准备
 ```shell
-pip install ms-swift[llm] -U
+pip install 'ms-swift[llm]' -U
 ```
 
 ## 推理
@@ -116,16 +116,14 @@ CUDA_VISIBLE_DEVICES=0 swift sft \
 CUDA_VISIBLE_DEVICES=0,1 swift sft \
     --model_type qwen-audio-chat \
     --dataset aishell1-mini-zh \
-    --train_dataset_sample -1 \
     --sft_type full \
 
 # ZeRO2
 # Experimental environment: 4 * A100
-# 2 * 80 GPU memory
+# 4 * 80 GPU memory
 NPROC_PER_NODE=4 CUDA_VISIBLE_DEVICES=0,1,2,3 swift sft \
     --model_type qwen-audio-chat \
     --dataset aishell1-mini-zh \
-    --train_dataset_sample -1 \
     --sft_type full \
     --use_flash_attn true \
     --deepspeed default-zero2

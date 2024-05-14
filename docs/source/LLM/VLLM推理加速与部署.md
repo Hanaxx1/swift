@@ -15,7 +15,7 @@ GPU设备: A10, 3090, V100, A100均可.
 # 设置pip全局镜像 (加速下载)
 pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/
 # 安装ms-swift
-pip install ms-swift[llm] -U
+pip install 'ms-swift[llm]' -U
 
 # vllm与cuda版本有对应关系，请按照`https://docs.vllm.ai/en/latest/getting_started/installation.html`选择版本
 pip install vllm -U
@@ -27,7 +27,7 @@ pip install -r requirements/llm.txt  -U
 ```
 
 ## 推理加速
-vllm不支持bnb量化的模型. vllm支持的模型可以查看[支持的模型](./支持的模型和数据集.md#模型).
+vllm不支持bnb量化的模型. vllm支持的模型可以查看[支持的模型](支持的模型和数据集.md#模型).
 
 ### qwen-7b-chat
 ```python
@@ -175,7 +175,7 @@ CUDA_VISIBLE_DEVICES=0 swift infer --model_type qwen1half-7b-chat-int4 --infer_b
 
 **单样本推理**:
 
-使用LoRA进行微调的模型你需要先[merge-lora](./LLM微调文档.md#merge-lora), 产生完整的checkpoint目录.
+使用LoRA进行微调的模型你需要先[merge-lora](LLM微调文档.md#merge-lora), 产生完整的checkpoint目录.
 
 使用全参数微调的模型可以无缝使用VLLM进行推理加速.
 ```python
@@ -186,7 +186,6 @@ from swift.llm import (
     ModelType, get_vllm_engine, get_default_template_type,
     get_template, inference_vllm
 )
-from swift.tuners import Swift
 
 ckpt_dir = 'vx-xxx/checkpoint-100-merged'
 model_type = ModelType.qwen_7b_chat
@@ -240,7 +239,7 @@ CUDA_VISIBLE_DEVICES=0 swift app-ui --ckpt_dir 'xxx/vx-xxx/checkpoint-xxx-merged
 ## 部署
 swift使用VLLM作为推理后端, 并兼容openai的API样式.
 
-服务端的部署命令行参数可以参考: [deploy命令行参数](命令行参数.md#deploy-命令行参数).
+服务端的部署命令行参数可以参考: [deploy命令行参数](命令行参数.md#deploy-参数).
 
 客户端的openai的API参数可以参考: https://platform.openai.com/docs/api-reference/introduction.
 
@@ -485,8 +484,39 @@ CUDA_VISIBLE_DEVICES=0 swift deploy --ckpt_dir 'xxx/vx-xxx/checkpoint-xxx-merged
 
 客户端示例代码同原始模型.
 
+### 多LoRA部署
+
+目前pt方式部署模型已经支持`peft>=0.10.0`进行多LoRA部署，具体方法为：
+
+- 确保部署时`merge_lora`为`False`
+- 使用`--lora_modules`参数,  可以查看[命令行文档](命令行参数.md)
+- 推理时指定lora tuner的名字到模型字段
+
+举例：
+
+```shell
+# 假设从llama3-8b-instruct训练了一个名字叫卡卡罗特的LoRA模型
+# 服务端
+swift deploy --ckpt_dir /mnt/ckpt-1000 --infer_backend pt --lora_modules my_tuner=/mnt/my-tuner
+# 会加载起来两个tuner，一个是`/mnt/ckpt-1000`的`default-lora`，一个是`/mnt/my-tuner`的`my_tuner`
+
+# 客户端
+curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d '{
+"model": "my-tuner",
+"messages": [{"role": "user", "content": "who are you?"}],
+"max_tokens": 256,
+"temperature": 0
+}'
+# resp: 我是卡卡罗特...
+# 如果指定mode='llama3-8b-instruct'，则返回I'm llama3...，即原模型的返回值
+```
+
+> [!NOTE]
+>
+> `--ckpt_dir`参数如果是个lora路径，则原来的default会被加载到default-lora的tuner上，其他的tuner需要通过`lora_modules`自行加载
 
 ## VLLM & LoRA
+
 VLLM & LoRA支持的模型可以查看: https://docs.vllm.ai/en/latest/models/supported_models.html
 
 ### 准备LoRA

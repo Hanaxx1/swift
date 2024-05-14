@@ -9,8 +9,8 @@ swift sft \
     --model_id_or_path qwen/Qwen-14B-Chat \
     --model_revision master \
     --sft_type lora \
-    --tuner_backend swift \
-    --template_type qwen \
+    --tuner_backend peft \
+    --template_type AUTO \
     --dtype AUTO \
     --output_dir output \
     --ddp_backend nccl \
@@ -25,7 +25,7 @@ swift sft \
     --lora_target_modules ALL \
     --gradient_checkpointing true \
     --batch_size 1 \
-    --weight_decay 0.01 \
+    --weight_decay 0.1 \
     --learning_rate 1e-4 \
     --gradient_accumulation_steps $(expr 16 / $nproc_per_node) \
     --max_grad_norm 0.5 \
@@ -36,4 +36,3 @@ swift sft \
     --logging_steps 10 \
     --use_flash_attn false \
     --deepspeed default-zero3 \
-    --save_only_model true \

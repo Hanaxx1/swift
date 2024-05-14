@@ -10,7 +10,7 @@ torchrun \
     llm_sft.py \
     --model_type yi-34b-chat \
     --sft_type lora \
-    --tuner_backend swift \
+    --tuner_backend peft \
     --template_type AUTO \
     --dtype AUTO \
     --output_dir output \
@@ -25,7 +25,7 @@ torchrun \
     --lora_target_modules DEFAULT \
     --gradient_checkpointing true \
     --batch_size 1 \
-    --weight_decay 0.01 \
+    --weight_decay 0.1 \
     --learning_rate 1e-4 \
     --gradient_accumulation_steps $(expr 16 / $nproc_per_node) \
     --max_grad_norm 0.5 \

@@ -11,7 +11,7 @@ torchrun \
     --model_id_or_path qwen/Qwen-7B-Chat \
     --model_revision master \
     --sft_type full \
-    --template_type qwen \
+    --template_type AUTO \
     --dtype AUTO \
     --output_dir output \
     --dataset medical-en medical-zh \
@@ -21,7 +21,7 @@ torchrun \
     --check_dataset_strategy warning \
     --gradient_checkpointing true \
     --batch_size 1 \
-    --weight_decay 0.01 \
+    --weight_decay 0.1 \
     --learning_rate 1e-5 \
     --gradient_accumulation_steps $(expr 16 / $nproc_per_node) \
     --max_grad_norm 0.5 \

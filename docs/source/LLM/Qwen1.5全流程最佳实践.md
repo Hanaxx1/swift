@@ -21,7 +21,7 @@
 
 ## 环境准备
 ```shell
-pip install ms-swift[llm] -U
+pip install 'ms-swift[llm]' -U
 
 # autoawq和cuda版本有对应关系，请按照`https://github.com/casper-hansen/AutoAWQ`选择版本
 pip install autoawq
@@ -170,7 +170,7 @@ CUDA_VISIBLE_DEVICES=0 swift app-ui \
 ```
 效果如下:
 
-![效果](resources/app.png)
+![效果](../../resources/app.png)
 
 
 ### 自我认知微调
@@ -178,8 +178,8 @@ CUDA_VISIBLE_DEVICES=0 swift app-ui \
 
 使用python:
 ```python
-# Experimental environment: A100
-# 26GB GPU memory
+# Experimental environment: 3090
+# 24GB GPU memory
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -187,15 +187,14 @@ from swift.llm import DatasetName, ModelType, SftArguments, sft_main
 
 sft_args = SftArguments(
     model_type=ModelType.qwen1half_7b_chat,
-    dataset=[DatasetName.ms_bench_mini],
-    train_dataset_sample=1000,
+    dataset=[f'{DatasetName.alpaca_zh}#500', f'{DatasetName.alpaca_en}#500',
+             f'{DatasetName.self_cognition}#500'],
     logging_steps=5,
     max_length=2048,
     learning_rate=5e-5,
     warmup_ratio=0.4,
     output_dir='output',
     lora_target_modules=['ALL'],
-    self_cognition_sample=500,
     model_name=['小黄', 'Xiao Huang'],
     model_author=['魔搭', 'ModelScope'])
 output = sft_main(sft_args)
@@ -208,24 +207,22 @@ print(f'best_model_checkpoint: {best_model_checkpoint}')
 使用模型并行:
 ```shell
 # Experimental environment: 2 * 3090
-# 2 * 19GB GPU memory
+# 2 * 18GB GPU memory
 CUDA_VISIBLE_DEVICES=0,1 \
 swift sft \
     --model_type qwen1half-7b-chat \
-    --dataset ms-bench-mini \
-    --train_dataset_sample 1000 \
+    --dataset alpaca-zh#500 alpaca-en#500 self-cognition#500 \
     --logging_steps 5 \
     --max_length 2048 \
     --learning_rate 5e-5 \
     --warmup_ratio 0.4 \
     --output_dir output \
     --lora_target_modules ALL \
-    --self_cognition_sample 500 \
     --model_name 小黄 'Xiao Huang' \
     --model_author 魔搭 ModelScope \
 ```
 
-使用**zero3**进行分布式训练的脚本:
+使用**zero2**进行分布式训练的脚本:
 ```shell
 # Experimental environment: 4 * 3090
 # 4 * 24GB GPU memory
@@ -233,18 +230,16 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 \
 NPROC_PER_NODE=4 \
 swift sft \
     --model_type qwen1half-7b-chat \
-    --dataset ms-bench-mini \
-    --train_dataset_sample 1000 \
+    --dataset alpaca-zh#500 alpaca-en#500 self-cognition#500 \
     --logging_steps 5 \
     --max_length 2048 \
     --learning_rate 5e-5 \
     --warmup_ratio 0.4 \
     --output_dir output \
     --lora_target_modules ALL \
-    --self_cognition_sample 500 \
     --model_name 小黄 'Xiao Huang' \
     --model_author 魔搭 ModelScope \
-    --deepspeed default-zero3 \
+    --deepspeed default-zero2 \
 ```
 
 如果你想要使用**界面的方式进行训练**, 可以输入以下命令, 并填入相应的值:
@@ -252,7 +247,7 @@ swift sft \
 swift web-ui
 ```
 
-![web-ui](resources/web-ui.png)
+![web-ui](../../resources/web-ui.png)
 
 ### 微调后推理
 随后我们验证模型微调后的效果.
@@ -302,7 +297,7 @@ CUDA_VISIBLE_DEVICES=0 swift app-ui \
 ```
 效果如下:
 
-![效果](resources/app2.png)
+![效果](../../resources/app2.png)
 
 ### 量化
 接下来, 我们介绍如何对微调后的模型进行**awq-int4量化**. 整个量化过程大概需要**20分钟**.
@@ -484,15 +479,13 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 \
 NPROC_PER_NODE=4 \
 swift sft \
     --model_type qwen1half-72b-chat \
-    --dataset ms-bench-mini \
-    --train_dataset_sample 1000 \
+    --dataset alpaca-zh#500 alpaca-en#500 self-cognition#500 \
     --logging_steps 5 \
     --max_length 4096 \
     --learning_rate 5e-5 \
     --warmup_ratio 0.4 \
     --output_dir output \
     --lora_target_modules ALL \
-    --self_cognition_sample 500 \
     --model_name 小黄 'Xiao Huang' \
     --model_author 魔搭 ModelScope \
     --deepspeed default-zero3 \

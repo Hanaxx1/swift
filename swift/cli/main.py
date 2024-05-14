@@ -13,12 +13,12 @@ ROUTE_MAPPING: Dict[str, str] = {
     'web-ui': 'swift.cli.web_ui',
     'deploy': 'swift.cli.deploy',
     'dpo': 'swift.cli.dpo',
-    'export': 'swift.cli.export'
+    'orpo': 'swift.cli.orpo',
+    'export': 'swift.cli.export',
+    'eval': 'swift.cli.eval'
 }
 
-ROUTE_MAPPING.update(
-    {k.replace('-', '_'): v
-     for k, v in ROUTE_MAPPING.items()})
+ROUTE_MAPPING.update({k.replace('-', '_'): v for k, v in ROUTE_MAPPING.items()})
 
 
 def use_torchrun() -> bool:
@@ -33,10 +33,7 @@ def get_torchrun_args() -> Optional[List[str]]:
     if not use_torchrun():
         return
     torchrun_args = []
-    for env_key in [
-            'NPROC_PER_NODE', 'MASTER_PORT', 'NNODES', 'NODE_RANK',
-            'MASTER_ADDR'
-    ]:
+    for env_key in ['NPROC_PER_NODE', 'MASTER_PORT', 'NNODES', 'NODE_RANK', 'MASTER_ADDR']:
         env_val = os.getenv(env_key)
         if env_val is None:
             continue
@@ -50,12 +47,23 @@ def cli_main() -> None:
     argv = argv[1:]
     file_path = importlib.util.find_spec(ROUTE_MAPPING[method_name]).origin
     torchrun_args = get_torchrun_args()
-    if torchrun_args is None or method_name not in ('sft', 'dpo'):
-        args = ['python', file_path, *argv]
+    if torchrun_args is None or method_name not in ('sft', 'dpo', 'orpo'):
+        try:
+            python_cmd = 'python'
+            subprocess.run(
+                [python_cmd, '--version'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            python_cmd = 'python3'
+        args = [python_cmd, file_path, *argv]
     else:
         args = ['torchrun', *torchrun_args, file_path, *argv]
     print(f"run sh: `{' '.join(args)}`", flush=True)
-    subprocess.run(args)
+    result = subprocess.run(args)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
 
 
 if __name__ == '__main__':

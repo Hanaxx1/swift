@@ -4,8 +4,7 @@ from dataclasses import fields
 from functools import partial, wraps
 from typing import Any, Dict, List, OrderedDict, Type
 
-from gradio import (Accordion, Button, Checkbox, Dropdown, Slider, Tab,
-                    TabItem, Textbox)
+from gradio import Accordion, Button, Checkbox, Dropdown, Slider, Tab, TabItem, Textbox
 
 from swift.llm.utils.model import MODEL_MAPPING, ModelType
 
@@ -27,9 +26,7 @@ def update_data(fn):
             if choices:
                 kwargs['choices'] = choices
 
-        if not isinstance(
-                self,
-            (Tab, TabItem, Accordion)) and 'interactive' not in kwargs:  # noqa
+        if not isinstance(self, (Tab, TabItem, Accordion)) and 'interactive' not in kwargs:  # noqa
             kwargs['interactive'] = True
 
         if 'is_list' in kwargs:
@@ -47,6 +44,9 @@ def update_data(fn):
                     kwargs['value'] = values['value']
                 if 'label' in values:
                     kwargs['label'] = values['label']
+                argument = base_builder.argument(elem_id)
+                if argument and 'label' in kwargs:
+                    kwargs['label'] = kwargs['label'] + f'({argument})'
 
         ret = fn(self, **kwargs)
         self.constructor_args.update(kwargs)
@@ -73,6 +73,7 @@ class BaseUI:
     default_dict: Dict[str, Any] = {}
     locale_dict: Dict[str, Dict] = {}
     element_dict: Dict[str, Dict] = {}
+    arguments: Dict[str, str] = {}
     sub_ui: List[Type['BaseUI']] = []
     group: str = None
     lang: str = all_langs[0]
@@ -148,6 +149,11 @@ class BaseUI:
         return elements[elem_id]
 
     @classmethod
+    def argument(cls, elem_id):
+        """Get argument by elem_id"""
+        return cls.arguments.get(elem_id)
+
+    @classmethod
     def set_lang(cls, lang):
         cls.lang = lang
         for sub_ui in cls.sub_ui:
@@ -174,6 +180,12 @@ class BaseUI:
         return default_dict
 
     @staticmethod
+    def get_argument_names(dataclass):
+        arguments = {}
+        for f in fields(dataclass):
+            arguments[f.name] = f'--{f.name}'
+        return arguments
+
+    @staticmethod
     def get_custom_name_list():
-        return list(
-            set(MODEL_MAPPING.keys()) - set(ModelType.get_model_name_list()))
+        return list(set(MODEL_MAPPING.keys()) - set(ModelType.get_model_name_list()))

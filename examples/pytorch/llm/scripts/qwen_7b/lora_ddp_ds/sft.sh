@@ -11,7 +11,7 @@ torchrun \
     --model_id_or_path qwen/Qwen-7B \
     --model_revision master \
     --sft_type lora \
-    --tuner_backend swift \
+    --tuner_backend peft \
     --template_type default-generation \
     --dtype AUTO \
     --output_dir output \
@@ -27,7 +27,7 @@ torchrun \
     --lora_target_modules c_attn c_proj \
     --gradient_checkpointing true \
     --batch_size 1 \
-    --weight_decay 0.01 \
+    --weight_decay 0.1 \
     --learning_rate 1e-4 \
     --gradient_accumulation_steps $(expr 16 / $nproc_per_node) \
     --max_grad_norm 0.5 \
@@ -38,4 +38,3 @@ torchrun \
     --logging_steps 10 \
     --use_flash_attn false \
     --deepspeed default-zero2 \
-    --save_only_model true \

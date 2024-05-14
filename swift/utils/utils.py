@@ -6,8 +6,8 @@ import re
 import subprocess
 import sys
 import time
-from typing import (Any, Callable, Dict, List, Mapping, Optional, Sequence,
-                    Tuple, Type, TypeVar)
+from contextlib import contextmanager
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Type, TypeVar
 
 import numpy as np
 import torch.distributed as dist
@@ -15,14 +15,22 @@ from transformers import HfArgumentParser, enable_full_determinism, set_seed
 
 from .logger import get_logger
 from .np_utils import stat_array
-from .torch_utils import broadcast_string, is_dist
+from .torch_utils import broadcast_string, is_dist, is_local_master
 
 logger = get_logger()
 
 
+@contextmanager
+def safe_ddp_context():
+    if is_dist() and not is_local_master():
+        dist.barrier()
+    yield
+    if is_dist() and is_local_master():
+        dist.barrier()
+
+
 def check_json_format(obj: Any) -> Any:
-    if obj is None or isinstance(
-            obj, (int, float, str, complex)):  # bool is a subclass of int
+    if obj is None or isinstance(obj, (int, float, str, complex)):  # bool is a subclass of int
         return obj
 
     if isinstance(obj, Sequence):
@@ -53,10 +61,7 @@ def _get_version(work_dir: str) -> int:
     return max(v_list) + 1
 
 
-def seed_everything(seed: Optional[int] = None,
-                    full_determinism: bool = False,
-                    *,
-                    verbose: bool = True) -> int:
+def seed_everything(seed: Optional[int] = None, full_determinism: bool = False, *, verbose: bool = True) -> int:
 
     if seed is None:
         seed_max = np.iinfo(np.int32).max
@@ -85,8 +90,7 @@ def add_version_to_work_dir(work_dir: str) -> str:
 _T = TypeVar('_T')
 
 
-def parse_args(class_type: Type[_T],
-               argv: Optional[List[str]] = None) -> Tuple[_T, List[str]]:
+def parse_args(class_type: Type[_T], argv: Optional[List[str]] = None) -> Tuple[_T, List[str]]:
     parser = HfArgumentParser([class_type])
     if argv is None:
         argv = sys.argv[1:]
@@ -95,8 +99,7 @@ def parse_args(class_type: Type[_T],
         args, = parser.parse_json_file(json_path)
         remaining_args = argv[1:]
     else:
-        args, remaining_args = parser.parse_args_into_dataclasses(
-            argv, return_remaining_strings=True)
+        args, remaining_args = parser.parse_args_into_dataclasses(argv, return_remaining_strings=True)
     return args, remaining_args
 
 
@@ -169,11 +172,51 @@ def get_pai_tensorboard_dir() -> Optional[str]:
     return os.environ.get('PAI_OUTPUT_TENSORBOARD')
 
 
-def subprocess_run(command: List[str],
-                   env: Optional[Dict[str, str]] = None,
-                   stdout=None,
-                   stderr=None) -> None:
+def subprocess_run(command: List[str], env: Optional[Dict[str, str]] = None, stdout=None, stderr=None):
     # stdoutm stderr: e.g. subprocess.PIPE.
     resp = subprocess.run(command, env=env, stdout=stdout, stderr=stderr)
     resp.check_returncode()
     return resp
+
+
+def split_str_parts_by(text: str, delimiters: List[str]):
+    """Split the text field into parts.
+
+    Args:
+        text: A text to be split.
+        delimiters: The delimiters.
+
+    Returns:
+        The split text in list of dicts.
+    """
+    all_start_chars = [d[0] for d in delimiters]
+    all_length = [len(d) for d in delimiters]
+
+    text_list = []
+    last_words = ''
+
+    while len(text) > 0:
+        for char_idx, char in enumerate(text):
+            match_index = [idx for idx, start_char in enumerate(all_start_chars) if start_char == char]
+            is_delimiter = False
+            for index in match_index:
+                if text[char_idx:char_idx + all_length[index]] == delimiters[index]:
+                    if last_words:
+                        if text_list:
+                            text_list[-1]['content'] = last_words
+                        else:
+                            text_list.append({'key': '', 'content': last_words})
+                    last_words = ''
+                    text_list.append({'key': delimiters[index]})
+                    text = text[char_idx + all_length[index]:]
+                    is_delimiter = True
+                    break
+            if not is_delimiter:
+                last_words += char
+            else:
+                break
+        if last_words == text:
+            text = ''
+
+    text_list[-1]['content'] = last_words
+    return text_list
