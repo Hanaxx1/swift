@@ -5,7 +5,7 @@ nproc_per_node=1
 
 PYTHONPATH=../../.. \
 CUDA_VISIBLE_DEVICES=1,2 \
-PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:1024 \
+PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512 \
 torchrun \
     --nproc_per_node=$nproc_per_node \
     --master_port 29500 \
@@ -20,11 +20,11 @@ torchrun \
     --dtype fp16 \
     --output_dir output \
     --ddp_backend nccl \
-    --custom_train_dataset_path /home/qiuyang/llama-recipes/src/llama_recipes/lla_datasets/alpaca_data_siyuanzu_process.json \
+    --custom_train_dataset_path /home/qiuyang/llama-recipes/src/llama_recipes/lla_datasets/alpaca_data_sanyuanzu_process1.json \
     --dataset_test_ratio 0 \
     --train_dataset_sample -1 \
     --num_train_epochs 1 \
-    --max_length 3700 \
+    --max_length 4096 \
     --check_dataset_strategy warning \
     --lora_rank 8 \
     --lora_alpha 32 \

@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel, PeftConfig
 import torch
@@ -53,8 +53,15 @@ model_dir8 = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10
 # mistral_request = LoRARequest('default-lora', 1, mistral_checkpoint)
 
 # model_type_mistral = ModelType.mistral_7b_instruct_v2
-# mistral_engine = get_vllm_engine(model_type_mistral, torch.bfloat16, enable_lora=True,model_id_or_path="/home/css/models/Mistral-7B-Instruct-v0.2",
-#                                  tensor_parallel_size=2,
+# mistral_engine = get_vllm_engine(model_type_mistral, 
+                                
+#                                   enable_lora=True,model_id_or_path="/home/css/models/Mistral-7B-Instruct-v0.2",
+#                                  tensor_parallel_size=1,
+#                                  engine_kwargs={
+#                                      "max_num_seqs": 128,
+#                                      "seed": 42,
+#                                      },
+#                                  max_model_len= 8192,
 #                              max_loras=1, max_lora_rank=16)
 # template_type = get_default_template_type(model_type_mistral)
 # template = get_template(template_type, mistral_engine.hf_tokenizer)
@@ -64,14 +71,13 @@ model_dir8 = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10
 
 
 
-#mistral
-model_type1 = ModelType.mistral_7b_instruct_v2
-template_type1 = get_default_template_type(model_type1)
-model_mistral, tokenizer_mistral = get_model_tokenizer(model_type1, model_kwargs={'device_map': 'auto'}, model_dir="/home/css/models/Mistral-7B-Instruct-v0.2")
-model_mistral.generation_config.max_new_tokens = 4096
-model_mistral = Swift.from_pretrained(model_mistral, model_dir1, inference_mode=True)
-model_mistral = Swift.from_pretrained(model_mistral, model_dir5, inference_mode=True)
-template_mistral = get_template(template_type1, tokenizer_mistral)
+
+# template_type1 = get_default_template_type(model_type1)
+# model_mistral, tokenizer_mistral = get_model_tokenizer(model_type1, model_kwargs={'device_map': 'auto'}, model_dir="/home/css/models/Mistral-7B-Instruct-v0.2")
+# model_mistral.generation_config.max_new_tokens = 4096
+# model_mistral = Swift.from_pretrained(model_mistral, model_dir1, inference_mode=True)
+# model_mistral = Swift.from_pretrained(model_mistral, model_dir5, inference_mode=True)
+# template_mistral = get_template(template_type1, tokenizer_mistral)
 
 #zephyr
 # model_type2 = ModelType.zephyr_7b_beta_chat
@@ -103,17 +109,22 @@ model_openchat, tokenizer_openchat = get_model_tokenizer(model_type4, model_kwar
 # template_openchat = get_template(template_type4, tokenizer_openchat)
 
 # #openchat
-# openchat_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/openchat_3.5/v0-20240131-124616/checkpoint-1948'
-# openchat_request = LoRARequest('default-lora', 1, openchat_checkpoint)
+openchat_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/openchat_3.5/v0-20240131-124616/checkpoint-1948'
+openchat_request = LoRARequest('default-lora', 1, openchat_checkpoint)
 
-# model_type_openchat = custom.CustomModelType.openchat_35
-# openchat_engine = get_vllm_engine(model_type_openchat, torch.bfloat16, enable_lora=True,model_id_or_path="/home/css/models/openchat-3.5-0106",
-#                                  tensor_parallel_size=2,
-#                              max_loras=1, max_lora_rank=16)
-# template_type = get_default_template_type(model_type_openchat)
-# template = get_template(template_type, openchat_engine.hf_tokenizer)
-# # 与`transformers.GenerationConfig`类似的接口
-# openchat_engine.generation_config.max_new_tokens = 256
+model_type_openchat = custom.CustomModelType.openchat_35
+openchat_engine = get_vllm_engine(model_type_openchat, 
+                                  # torch.bfloat16, 
+                                  enable_lora=True,model_id_or_path="/home/css/models/openchat-3.5-0106",
+                                 tensor_parallel_size=1,
+                                 engine_kwargs={"max_num_seqs": 128,
+                                                "seed": 42,},
+
+                             max_loras=1, max_lora_rank=16)
+template_type = get_default_template_type(model_type_openchat)
+template = get_template(template_type, openchat_engine.hf_tokenizer)
+# 与`transformers.GenerationConfig`类似的接口
+openchat_engine.generation_config.max_new_tokens = 256
 
 
 #solar
@@ -125,17 +136,25 @@ model_openchat, tokenizer_openchat = get_model_tokenizer(model_type4, model_kwar
 # template_solar = get_template(template_type5, tokenizer_solar)
 
 #solar
-solar_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10.7b-instruct/v1-20240218-003119/checkpoint-1948'
-solar_request = LoRARequest('default-lora', 1, solar_checkpoint)
+# solar_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10.7b-instruct/v1-20240218-003119/checkpoint-1948'
+# solar_request = LoRARequest('default-lora', 1, solar_checkpoint)
 
-model_type_solar = custom.CustomModelType.solar_instruct_10_7b
-solar_engine = get_vllm_engine(model_type_solar, torch.float16, enable_lora=True,model_id_or_path="/home/css/models/SOLAR-10.7B-Instruct-v1.0",
-                                 tensor_parallel_size=2,
-                             max_loras=1, max_lora_rank=16)
-template_type = get_default_template_type(model_type_solar)
-template = get_template(template_type, solar_engine.hf_tokenizer)
-# 与`transformers.GenerationConfig`类似的接口
-solar_engine.generation_config.max_new_tokens = 256
+# model_type_solar = custom.CustomModelType.solar_instruct_10_7b
+# solar_engine = get_vllm_engine(model_type_solar, 
+#                                 enable_lora=True,model_id_or_path="/home/css/models/SOLAR-10.7B-Instruct-v1.0",
+#                                  tensor_parallel_size=1,
+#                                  gpu_memory_utilization=0.95,
+#                                  engine_kwargs={
+#                                      "max_num_seqs": 16,
+#                                      "seed": 42,
+#                                      # "enforce_eager": True,
+#                                      },
+#                                  max_model_len= 4096,
+#                              max_loras=1, max_lora_rank=8)
+# template_type = get_default_template_type(model_type_solar)
+# template = get_template(template_type, solar_engine.hf_tokenizer)
+# # 与`transformers.GenerationConfig`类似的接口
+# solar_engine.generation_config.max_new_tokens = 256
 
 
 # model_llama.generation_config.top_p=0.75
@@ -162,41 +181,59 @@ eval_prompt = f"### Instruction: According to the following information:<{conten
 content_list = []
 # count = 0
 # 打开JSON文件
-with open('/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data/c4_data6.json', 'r') as file:
+line_count = 1
+with open('/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data/news_data/noclean_c4/c4_data_noclean1.json', 'r') as file:
     # 逐行读取文件内容
     for line in file:
         # 解析JSON数据
         data = json.loads(line)
-
-        if len(tokenizer_openchat.tokenize(data['content'])) <3500:
+        print(line_count)
+        line_count = line_count + 1
+        if len(tokenizer_openchat.tokenize(str(data['content']))) <3500:
             # count = count + 1
-            print(len(tokenizer_openchat.tokenize(data['content'])))
+            # print(len(tokenizer_openchat.tokenize(data['content'])))
         # 在这里可以对每一行的数据进行处理
             content_list.append(data['content'])
 
 
 print(len(content_list))
-
+result_mistral = []
 
 request_list = []
-response_list = []
 
 for i in range(0,len(content_list)):
     print(i)
     content = content_list[i]
     eval_prompt = f"### Instruction: According to the following information:<{content}> Answer the question。Whether anyone in the information was transferred between countries in text?if so,from which country to which country?What year and month did the transfer take place?only give the starting point and destination example [Yes or No,starting point,destination,year-month],just country name.\n### Response:\n"
-    response_mistral, history_mistral = inference(model_mistral, template_mistral, eval_prompt)
+    # response_mistral, history_mistral = inference(model_llama, template_llama, eval_prompt)
     # response_zephyr, history_zephyr = inference(model_zephyr, template_zephyr, eval_prompt)
-    print(response_mistral)
 
-    response_list.append(response_mistral)
+    # use lora
+    ques_dict = dict()
+    ques_dict['query'] = eval_prompt
+    request_list.append(ques_dict)
+
+
+    # response = resp_list[0]['response']
+    # print(f'query: {query}')
+    # print(f'response: {response}')
+    # result_mistral.append(response)
+resp_list = inference_vllm(
+    openchat_engine, template, request_list, lora_request=openchat_request,
+    generation_config=generation_config,
+    use_tqdm=True
+    )
+for i in range(0,len(resp_list)):
+    response = resp_list[i]['response']
+    # print(f'response: {response}')
+    result_mistral.append(response)
 
 # 指定本地文件路径
-file_path = '/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data_siyuanzu/mistral_list6.json'
+file_path = '/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data_siyuanzu/openchat_list_noclean1.json'
 
 # 将数据写入本地文件
 with open(file_path, 'w') as file:
-    json.dump(response_list, file, indent=2)
+    json.dump(result_mistral, file, indent=2)
 
 
 
