@@ -56,8 +56,7 @@ from swift.llm import (
 model_type = ModelType.qwen_7b_chat
 sft_args = SftArguments(
     model_type=model_type,
-    train_dataset_sample=2000,
-    dataset=[DatasetName.blossom_math_zh],
+    dataset=[f'{DatasetName.blossom_math_zh}#2000'],
     output_dir='output')
 result = sft_main(sft_args)
 best_model_checkpoint = result['best_model_checkpoint']
@@ -66,8 +65,7 @@ torch.cuda.empty_cache()
 
 infer_args = InferArguments(
     ckpt_dir=best_model_checkpoint,
-    load_dataset_config=True,
-    val_dataset_sample=10)
+    load_dataset_config=True)
 # merge_lora(infer_args, device_map='cpu')
 result = infer_main(infer_args)
 torch.cuda.empty_cache()
@@ -85,9 +83,10 @@ CUDA_VISIBLE_DEVICES=0 swift sft \
     --output_dir output \
 
 # 使用自己的数据集
+# 自定义数据集格式查看: https://github.com/modelscope/swift/blob/main/docs/source/LLM/%E8%87%AA%E5%AE%9A%E4%B9%89%E4%B8%8E%E6%8B%93%E5%B1%95.md#%E8%87%AA%E5%AE%9A%E4%B9%89%E6%95%B0%E6%8D%AE%E9%9B%86
 CUDA_VISIBLE_DEVICES=0 swift sft \
     --model_id_or_path qwen/Qwen-7B-Chat \
-    --custom_train_dataset_path chatml.jsonl \
+    --dataset chatml.jsonl \
     --output_dir output \
 
 # 使用DDP
