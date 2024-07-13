@@ -11,6 +11,7 @@
 
 ## 环境准备
 ```shell
+# 请使用"ms-swift>=2.2"或者main分支.
 pip install 'ms-swift[llm]' -U
 ```
 
@@ -49,6 +50,11 @@ Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.co
 <<< 根据图片中的内容写首诗
 Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/poem.png
 在宁静的夜晚，一艘船在平静的湖面上航行。
+--------------------------------------------------
+<<< clear
+<<< 对图片进行OCR
+Input a media path or URL <<< https://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/ocr.png
+Swift 250+ LMM35+ MLLM
 """
 ```
 
@@ -69,6 +75,10 @@ math:
 poem:
 
 <img src="http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/poem.png" width="250" style="display: inline-block;">
+
+ocr:
+
+<img src="https://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/ocr.png" width="250" style="display: inline-block;">
 
 **单样本推理**
 

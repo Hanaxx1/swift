@@ -1,4 +1,16 @@
 # InternVL Best Practice
+The document corresponds to the following models:
+
+- [internvl-chat-v1_5](https://www.modelscope.cn/models/AI-ModelScope/InternVL-Chat-V1-5/summary)
+- [internvl-chat-v1_5-int8](https://www.modelscope.cn/models/AI-ModelScope/InternVL-Chat-V1-5-int8/summary)
+- [mini-internvl-chat-2b-v1_5](https://www.modelscope.cn/models/OpenGVLab/Mini-InternVL-Chat-2B-V1-5)
+- [mini-internvl-chat-4b-v1_5](https://www.modelscope.cn/models/OpenGVLab/Mini-InternVL-Chat-4B-V1-5)
+- [internvl2-2b](https://www.modelscope.cn/models/OpenGVLab/InternVL2-2B)
+- [internvl2-4b](https://www.modelscope.cn/models/OpenGVLab/InternVL2-4B)
+- [internvl2-8b](https://www.modelscope.cn/models/OpenGVLab/InternVL2-8B)
+- [internvl2-26b](https://www.modelscope.cn/models/OpenGVLab/InternVL2-26B)
+
+The following practice takes `internvl-chat-v1_5` as an example, and you can also switch to other models by specifying `--model_type`.
 
 ## Table of Contents
 - [Environment Setup](#environment-setup)
@@ -16,24 +28,20 @@ pip install Pillow
 
 ## Inference
 
-Inference for [internvl-chat-v1.5](https://www.modelscope.cn/models/AI-ModelScope/InternVL-Chat-V1-5/summary)
-(To use a local model file, add the argument `--model_id_or_path /path/to/model`)
-
-Inference with [internvl-chat-v1.5](https://www.modelscope.cn/models/AI-ModelScope/InternVL-Chat-V1-5/summary) and [internvl-chat-v1.5-int8](https://www.modelscope.cn/models/AI-ModelScope/InternVL-Chat-V1-5-int8/summary).
-
-The tutorial below takes `internvl-chat-v1.5` as an example, and you can change to `--model_type internvl-chat-v1_5-int8` to select the INT8 version of the model. Alternatively, select the Mini-Internvl model by choosing either `mini-internvl-chat-2b-v1_5` or `mini-internvl-chat-4b-v1_5`.
-
 **Note**
 - If you want to use a local model file, add the argument --model_id_or_path /path/to/model.
 - If your GPU does not support flash attention, use the argument --use_flash_attn false. And for int8 models, it is necessary to specify `dtype --bf16` during inference, otherwise the output may be garbled.
+- The model's configuration specifies a relatively small max_length of 2048, which can be modified by setting `--max_length`.
+- Memory consumption can be reduced by using the parameter `--gradient_checkpointing true`.
+- The InternVL series of models only support training on datasets that include images.
 
 ```shell
 # Experimental environment: A100
 # 55GB GPU memory
-CUDA_VISIBLE_DEVICES=0 swift infer --model_type internvl-chat-v1_5 --dtype bf16
+CUDA_VISIBLE_DEVICES=0 swift infer --model_type internvl-chat-v1_5 --dtype bf16 --max_length 4096
 
 # 2*30GB GPU memory
-CUDA_VISIBLE_DEVICES=0,1 swift infer --model_type internvl-chat-v1_5 --dtype bf16
+CUDA_VISIBLE_DEVICES=0,1 swift infer --model_type internvl-chat-v1_5 --dtype bf16 --max_length 4096
 ```
 
 Output: (supports passing in local path or URL)
@@ -43,14 +51,17 @@ Output: (supports passing in local path or URL)
 Input a media path or URL <<<  http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/cat.png
 This is a high-resolution image of a kitten. The kitten has striking blue eyes and a fluffy white and grey coat. The fur pattern suggests that it may be a Maine Coon or a similar breed. The kitten's ears are perked up, and it has a curious and innocent expression. The background is blurred, which brings the focus to the kitten's face.
 --------------------------------------------------
+<<< clear
 <<< How many sheep are in the picture?
 Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/animal.png
 There are four sheep in the picture.
 --------------------------------------------------
+<<< clear
 <<< What is the calculation result?
 Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/math.png
 The calculation result is 59,856.
 --------------------------------------------------
+<<< clear
 <<< Write a poem based on the content of the picture.
 Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/poem.png
 Token indices sequence length is longer than the specified maximum sequence length for this model (5142 > 4096). Running this sequence through the model will result in indexing errors
@@ -100,13 +111,13 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 from swift.llm import (
-    get_model_tokenizer, get_template, inference, ModelType,
+    get_model_tokenizer, get_template, inference,
     get_default_template_type, inference_stream
 )
 from swift.utils import seed_everything
 import torch
 
-model_type = ModelType.internvl_chat_v1_5
+model_type = "internvl-chat-v1_5"
 template_type = get_default_template_type(model_type)
 print(f'template_type: {template_type}')
 
@@ -178,6 +189,7 @@ LoRA fine-tuning:
 CUDA_VISIBLE_DEVICES=0 swift sft \
     --model_type internvl-chat-v1_5 \
     --dataset coco-en-2-mini \
+    --max_length 4096
 
 # device_map
 # Experimental environment: 2*A100...
@@ -185,6 +197,7 @@ CUDA_VISIBLE_DEVICES=0 swift sft \
 CUDA_VISIBLE_DEVICES=0,1 swift sft \
     --model_type  internvl-chat-v1_5 \
     --dataset coco-en-2-mini \
+    --max_length 4096
 
 # ddp + deepspeed-zero2
 # Experimental environment: 2*A100...
@@ -193,6 +206,7 @@ NPROC_PER_NODE=2 \
 CUDA_VISIBLE_DEVICES=0,1 swift sft \
     --model_type  internvl-chat-v1_5 \
     --dataset coco-en-2-mini \
+    --max_length 4096 \
     --deepspeed default-zero2
 ```
 
@@ -205,9 +219,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 swift sft \
     --model_type internvl-chat-v1_5 \
     --dataset coco-en-2-mini \
     --sft_type full \
+    --max_length 4096
 ```
 
-[Custom datasets](../LLM/Customization.md#-Recommended-Command-line-arguments)  support json, jsonl formats. Here is an example of a custom dataset:
+[Custom datasets](../LLM/Customization.md#-Recommended-Command-line-arguments) support json, jsonl formats. Here is an example of a custom dataset:
 
 (Only single-turn dialogue is supported. Each turn of dialogue must contain one image. Local paths or URLs can be passed in.)
 
@@ -223,7 +238,8 @@ Direct inference:
 ```shell
 CUDA_VISIBLE_DEVICES=0 swift infer \
     --ckpt_dir output/internvl-chat-v1_5/vx-xxx/checkpoint-xxx \
-    --load_dataset_config true
+    --load_dataset_config true \
+    --max_length 4096
 ```
 
 **merge-lora** and inference:
@@ -234,10 +250,12 @@ CUDA_VISIBLE_DEVICES=0 swift export \
 
 CUDA_VISIBLE_DEVICES=0 swift infer \
     --ckpt_dir "output/internvl-chat-v1_5/vx-xxx/checkpoint-xxx-merged" \
-    --load_dataset_config true
+    --load_dataset_config true \
+    --max_length 4096
 
 # device map
 CUDA_VISIBLE_DEVICES=0,1 swift infer \
     --ckpt_dir "output/internvl-chat-v1_5/vx-xxx/checkpoint-xxx-merged" \
-    --load_dataset_config true
+    --load_dataset_config true \
+    --max_length 4096
 ```

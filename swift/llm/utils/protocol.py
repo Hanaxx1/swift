@@ -2,7 +2,7 @@
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 
 def random_uuid() -> str:
@@ -39,11 +39,10 @@ class XRequestConfig:
     # None: use deploy_args
     temperature: Optional[float] = None
     top_p: Optional[float] = None
-    repetition_penalty: Optional[float] = None
 
     n: int = 1
     seed: Optional[int] = None
-    stop: List[str] = field(default_factory=list)
+    stop: Optional[List[str]] = None
     stream: bool = False
 
     best_of: Optional[int] = None
@@ -53,7 +52,9 @@ class XRequestConfig:
 
     # additional
     num_beams: int = 1
-    top_k: Optional[int] = None  # None: use deploy_args
+    # None: use deploy_args
+    top_k: Optional[int] = None
+    repetition_penalty: Optional[float] = None
 
 
 @dataclass
@@ -66,7 +67,9 @@ class CompletionRequestMixin:
 @dataclass
 class ChatCompletionRequestMixin:
     model: str
-    messages: List[Dict[str, str]]
+    messages: List[Dict[str, Union[str, List[Dict]]]]
+    tools: Optional[List[Dict[str, Union[str, Dict]]]] = None
+    tool_choice: Optional[Union[str, Dict]] = 'auto'
     images: List[str] = field(default_factory=list)
 
 
@@ -88,9 +91,23 @@ class UsageInfo:
 
 
 @dataclass
+class Function:
+    arguments: Optional[str] = None
+    name: str = ''
+
+
+@dataclass
+class ChatCompletionMessageToolCall:
+    id: str
+    function: Function
+    type: str = 'function'
+
+
+@dataclass
 class ChatMessage:
     role: Literal['system', 'user', 'assistant']
     content: str
+    tool_calls: Optional[ChatCompletionMessageToolCall] = None
 
 
 @dataclass
@@ -131,6 +148,7 @@ class CompletionResponse:
 class DeltaMessage:
     role: Literal['system', 'user', 'assistant']
     content: str
+    tool_calls: Optional[ChatCompletionMessageToolCall] = None
 
 
 @dataclass

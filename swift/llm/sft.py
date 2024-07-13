@@ -4,10 +4,7 @@ from functools import partial
 from typing import Any, Dict, Union
 
 import json
-import numpy as np
 import torch
-import torch.distributed as dist
-from datasets import Dataset
 from modelscope import BitsAndBytesConfig, GenerationConfig
 from transformers import IntervalStrategy
 from transformers.integrations import is_deepspeed_zero3_enabled
@@ -16,14 +13,13 @@ from transformers.utils import is_torch_npu_available
 from swift.torchacc_utils import patch_acc_model
 from swift.trainers import Seq2SeqTrainer
 from swift.trainers.utils import can_return_loss, find_labels
-from swift.utils import (check_json_format, compute_acc_metrics, compute_nlg_metrics, get_dist_setting, get_logger,
-                         get_main, get_model_info, is_ddp_plus_mp, is_dist, is_master, plot_images,
-                         preprocess_logits_for_metrics, seed_everything, show_layers, use_torchacc)
+from swift.utils import (append_to_jsonl, check_json_format, compute_acc_metrics, compute_nlg_metrics, get_dist_setting,
+                         get_logger, get_main, get_model_info, is_ddp_plus_mp, is_dist, is_local_master, is_master,
+                         plot_images, preprocess_logits_for_metrics, seed_everything, show_layers, use_torchacc)
 from .accelerator import ta_accelerate
 from .tuner import prepare_model
-from .utils import (MODEL_MAPPING, TEMPLATE_MAPPING, LazyLLMDataset, SftArguments, Template, dataset_map, get_dataset,
-                    get_model_tokenizer, get_template, get_time_info, print_example, set_generation_config,
-                    sort_by_max_length, stat_dataset)
+from .utils import (LazyLLMDataset, SftArguments, Template, dataset_map, get_dataset, get_model_tokenizer, get_template,
+                    get_time_info, print_example, set_generation_config, sort_by_max_length, stat_dataset)
 
 logger = get_logger()
 
@@ -45,7 +41,7 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
             torch.cuda.set_per_process_memory_fraction(max(min(args.gpu_memory_fraction, 1.0), 0.01), device=device_id)
 
     # Loading Model and Tokenizer
-    if is_deepspeed_zero3_enabled():
+    if is_deepspeed_zero3_enabled() or os.environ.get('ACCELERATE_USE_FSDP', 'False') == 'true':
         model_kwargs = {'device_map': None}
     elif is_torch_npu_available():
         model_kwargs = {'device_map': local_rank if local_rank >= 0 else 0}
@@ -59,8 +55,18 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
         model_kwargs = {'low_cpu_mem_usage': True}
         if is_dist() and not is_ddp_plus_mp():
             model_kwargs['device_map'] = {'': local_rank}
+        elif torch.cuda.device_count() == 1:
+            model_kwargs['device_map'] = 'cuda:0'
         elif not use_torchacc():
             model_kwargs['device_map'] = 'auto'
+
+    if args.device_max_memory:
+        n_gpu = torch.cuda.device_count()
+        assert len(args.device_max_memory) == n_gpu // local_world_size
+        model_kwargs['max_memory'] = {
+            i: mem
+            for i, mem in zip(list(range(max(local_rank, 0), n_gpu, local_world_size)), args.device_max_memory)
+        }
 
     if args.quant_method == 'hqq':
         from transformers import HqqConfig
@@ -101,16 +107,9 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
         kwargs['use_flash_attn'] = args.use_flash_attn
     if args.local_repo_path:
         kwargs['local_repo_path'] = args.local_repo_path
-    if args.quant_method == 'awq':
-        kwargs['is_awq'] = True
-    elif args.quant_method == 'aqlm':
-        kwargs['is_aqlm'] = True
-    elif args.quant_method == 'gptq':
-        kwargs['is_gptq'] = True
 
     if args.rope_scaling:
         kwargs['rope_scaling'] = args.rope_scaling
-        kwargs['max_length'] = args.max_length
 
     model, tokenizer = get_model_tokenizer(
         args.model_type,
@@ -118,8 +117,14 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
         model_kwargs,
         model_id_or_path=args.model_id_or_path,
         revision=args.model_revision,
+        quant_method=args.quant_method,
         is_training=True,
         **kwargs)
+    for k in ['gptq', 'awq', 'aqlm']:
+        if getattr(model, f'is_{k}', None):
+            args.quant_method = k
+            logger.info(f'Setting args.quant_method: {args.quant_method}')
+            break
     logger.info(f'model_config: {model.config}')
     generation_config = GenerationConfig(
         max_new_tokens=args.max_new_tokens,
@@ -192,15 +197,24 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
     logger.info(f'train_dataset: {train_dataset}')
     logger.info(f'val_dataset: {val_dataset}')
     template_kwargs = {}
-    template_info = TEMPLATE_MAPPING[args.template_type]
-    use_model = template_info.get('use_model', False)
-    if use_model:
-        template_kwargs['model'] = model
     template_kwargs['use_loss_scale'] = args.use_loss_scale
+    if args.loss_scale_config_path is not None:
+        cwd = os.getcwd()
+        config_path = args.loss_scale_config_path if os.path.isabs(args.loss_scale_config_path) else os.path.join(
+            cwd, args.loss_scale_config_path)
+        with open(config_path, 'r') as json_file:
+            template_kwargs['loss_scale_map'] = json.load(json_file)
+    template_kwargs['tools_prompt'] = args.tools_prompt
     if args.sequence_parallel_size and args.sequence_parallel_size > 1:
         template_kwargs['sequence_parallel_size'] = args.sequence_parallel_size
-    template: Template = get_template(args.template_type, tokenizer, args.system, args.max_length,
-                                      args.truncation_strategy, **template_kwargs)
+    template: Template = get_template(
+        args.template_type,
+        tokenizer,
+        args.system,
+        args.max_length,
+        args.truncation_strategy,
+        model=model,
+        **template_kwargs)
     args.system = template.default_system
     logger.info(f'system: {args.system}')
     logger.info(f'args.lazy_tokenize: {args.lazy_tokenize}')
@@ -248,6 +262,7 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
             val_dataset = LazyLLMDataset(val_dataset, template)
     if val_dataset is None:
         training_args.evaluation_strategy = IntervalStrategy.NO
+        training_args.eval_strategy = IntervalStrategy.NO
         training_args.do_eval = False
 
     padding_to = args.max_length if args.sft_type == 'longlora' else None
@@ -266,10 +281,16 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
     logger.info(f'training_args: {training_args}')
 
     trainer_kwargs = {}
+    if not hasattr(model.config, 'is_encoder_decoder'):
+        model.config.is_encoder_decoder = False
+    is_encoder_decoder = model.config.is_encoder_decoder
+    trainer_kwargs['is_encoder_decoder'] = is_encoder_decoder
+
     if args.predict_with_generate:
         trainer_kwargs['compute_metrics'] = partial(compute_nlg_metrics, tokenizer=tokenizer)
     else:
-        compute_metrics = partial(compute_acc_metrics, acc_strategy=args.acc_strategy)
+        compute_metrics = partial(
+            compute_acc_metrics, acc_strategy=args.acc_strategy, is_encoder_decoder=is_encoder_decoder)
         trainer_kwargs['compute_metrics'] = compute_metrics
         trainer_kwargs['preprocess_logits_for_metrics'] = preprocess_logits_for_metrics
     if args.check_model_is_latest is False:
@@ -293,8 +314,11 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
         for args_obj, fname in zip([args, training_args], ['sft_args.json', 'training_args.json']):
             fpath = os.path.join(args.output_dir, fname)
             logger.info(f'The {args_obj.__class__.__name__} will be saved in: {fpath}')
+            args_dict = args_obj.__dict__
+            args_dict.pop('hub_token', None)
+            args_dict.pop('push_to_hub_token', None)
             with open(fpath, 'w', encoding='utf-8') as f:
-                json.dump(check_json_format(args_obj.__dict__), f, ensure_ascii=False, indent=2)
+                json.dump(check_json_format(args_dict), f, ensure_ascii=False, indent=2)
     logging_path = os.path.join(args.output_dir, 'logging.jsonl')
     logger.info(f'The logging file will be saved in: {logging_path}')
     trainer.train(training_args.resume_from_checkpoint)
@@ -313,8 +337,6 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
             trainer.push_to_hub()
     run_info = {
         'memory': trainer.perf['memory'],
-        'gen_time': trainer.perf['gen_time'],
-        'gen_len': trainer.perf['gen_len'],
         'train_time': train_time,
         'last_model_checkpoint': last_model_checkpoint,
         'best_model_checkpoint': trainer.state.best_model_checkpoint,
@@ -324,9 +346,12 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
         'model_info': model_info,
         'dataset_info': dataset_info,
     }
-    jsonl_path = os.path.join(args.output_dir, 'logging.jsonl')
-    with open(jsonl_path, 'a', encoding='utf-8') as f:
-        f.write(json.dumps(run_info) + '\n')
+    for key in ['gen_time', 'gen_len']:
+        if trainer.perf[key] != 0:
+            run_info[key] = trainer.perf[key]
+    if is_local_master():
+        jsonl_path = os.path.join(args.output_dir, 'logging.jsonl')
+        append_to_jsonl(jsonl_path, run_info)
     return run_info
 
 

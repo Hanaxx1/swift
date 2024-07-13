@@ -4,22 +4,26 @@
 
 1. [LLM Inference](LLM-inference.md)
 2. [LLM Finetuning](LLM-fine-tuning.md)
-3. [DPO Training](DPO.md)
-4. [Web-ui Training and Inference](../GetStarted/Web-ui.md)
+3. [LRHF Training](Human-Preference-Alignment-Training-Documentation.md)
+4. [Web-UI Training and Inference](../GetStarted/Web-ui.md)
 5. [LLM Evaluation](LLM-eval.md)
 6. [LLM Quantization](LLM-quantization.md)
 7. [VLLM Inference and Deployment](VLLM-inference-acceleration-and-deployment.md)
-8. [LLM Experimental](LLM-exp.md)
-9. [ORPO Training](ORPO.md)
-10. [SimPO Training](SimPO.md)
+8. [LmDeploy Inference and Deployment](LmDeploy-inference-acceleration-and-deployment.md)
+9. [LLM Experimental](LLM-exp.md)
+10. [DPO Training](DPO.md)
+11. [ORPO Training](ORPO.md)
+12. [SimPO Training](SimPO.md)
+13. [Human Preference Alignment Training Documentation](Human-Preference-Alignment-Training-Documentation.md)
 
 ### ⭐️Best Practices!
 
 1. [Self Cognition Best Practice](Self-cognition-best-practice.md)
-2. [Agent Training and Inference Best Practice](Agent-best-practice.md)
-3. [Qwen1.5 Best Practice](Qwen1.5-best-practice.md)
-4. [NPU Best Practice](NPU-best-practice.md)
-5. [Grok-1 Training and Inference Best Practice](Grok-1-best-practice.md)
+2. [Agent Training and Inference Best Practice](Agent-fine-tuning-best-practice.md)
+3. [Agent deployment best practice](Agent-deployment-best-practice.md)
+4. [Qwen1.5 Best Practice](Qwen1.5-best-practice.md)
+5. [NPU Best Practice](NPU-best-practice.md)
+6. [Grok-1 Training and Inference Best Practice](Grok-1-best-practice.md)
 
 
 ### 🐔References！

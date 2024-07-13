@@ -1,13 +1,107 @@
 # Copyright (c) Alibaba, Inc. and its affiliates.
 import ast
+import os
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 from datasets import Dataset as HfDataset
 from tqdm import tqdm
+from transformers.utils import strtobool
 
+from .media import MediaTag
 from .template import History
 
 PreprocessFunc = Callable[[HfDataset], HfDataset]
+dataset_enable_cache = strtobool(os.environ.get('DATASET_ENABLE_CACHE', 'False'))
+
+
+def _reduce_columns(cls: type) -> type:
+    # Remove unnecessary columns from the output dataset.
+    if getattr(cls, '_patching', False):
+        return cls
+
+    call_func = cls.__call__
+    preprocess = cls.preprocess
+    cls._patching = True
+
+    def new_call_func(self, dataset: HfDataset) -> HfDataset:
+        self.column_state = set(['images', 'videos', 'audios'])
+        dataset = call_func(self, dataset)
+        for k in dataset.features.keys():
+            if k not in self.column_state:
+                dataset = dataset.remove_columns([k])
+        return dataset
+
+    def new_preprocess(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        row = preprocess(self, row)
+        for k, v in row.items():
+            if k == 'query_role':
+                if k not in self.column_state and v and v != 'user':
+                    self.column_state.add(k)
+            elif k == 'history_roles':
+                if k not in self.column_state and v and any(_v[0] != 'user' or _v[1] != 'assistant' for _v in v):
+                    self.column_state.add(k)
+            else:
+                if v:
+                    self.column_state.add(k)
+        return row
+
+    cls.__call__ = new_call_func
+    cls.preprocess = new_preprocess
+
+    return cls
+
+
+def parse_medias(d: Dict[str, Any], media_key=None):
+    if isinstance(media_key, str):
+        if media_key in d:
+            medias = d[media_key]
+        else:
+            medias = None
+    elif media_key:  # function
+        medias = media_key(d)
+    else:
+        medias = None
+    return medias
+
+
+class MediaMixin:
+
+    def __init__(self,
+                 media_key: Union[str, Callable] = 'image',
+                 media_tag: str = '<image>',
+                 media_type: Literal['image', 'audio', 'video'] = None):
+        self.media_key = media_key
+        self.media_tag = media_tag
+        self.media_type = media_type
+        self.media_replacer = MediaTag(media_type, media_tag)
+
+    @property
+    def media_name(self):
+        if not self.media_type:
+            return None
+        return self.media_replacer.media_keys[self.media_type]
+
+    def parse_medias(self, d: Dict[str, Any]):
+        return parse_medias(d, self.media_key)
+
+    @property
+    def empty_row(self):
+        empty_row = {
+            'query': None,
+            'response': None,
+            'tools': None,
+            'system': None,
+            'history': None,
+        }
+        if self.media_type and not isinstance(self.media_key, str):
+            empty_row[self.media_name] = None
+        return empty_row
+
+
+class RowPreprocessMixin:
+
+    def preprocess(self, d: Dict[str, Any]) -> Dict[str, Any]:
+        raise NotImplementedError
 
 
 class SwiftPreprocessor:
@@ -36,44 +130,49 @@ class SwiftPreprocessor:
         return dataset
 
 
-class AlpacaPreprocessor:
+@_reduce_columns
+class AlpacaPreprocessor(MediaMixin, RowPreprocessMixin):
 
-    def __init__(self, concat_inst_inp: Optional[Callable[[str, str], str]] = None):
+    def __init__(self, concat_inst_inp: Optional[Callable[[str, str], str]] = None, **kwargs):
         self.concat_inst_inp = concat_inst_inp
+        super().__init__(**kwargs)
+
+    def preprocess(self, d: Dict[str, Any]) -> Dict[str, Any]:
+        inst = d['instruction']
+        inp: Optional[str] = d.get('input', None)
+        h, output = d.pop('history', None), d['output']
+        sys = d.pop('system', None)
+        tool = d.pop('tools', None)
+        if output is None:
+            return self.empty_row
+        if inp is None or len(inp) == 0:
+            q = inst
+        elif self.concat_inst_inp is not None:
+            q = self.concat_inst_inp(inst, inp)
+        else:
+            q = f'{inst}\n{inp}'
+        row = {
+            'history': h,
+            'query': q,
+            'system': sys,
+            'response': output,
+            'tools': tool,
+        }
+        medias = self.parse_medias(d)
+        self.media_replacer(row, medias)
+        if self.media_type:
+            if not isinstance(self.media_key, str):
+                row[self.media_name] = medias
+            else:
+                row[self.media_key] = medias
+        return row
 
     def __call__(self, dataset: HfDataset) -> HfDataset:
-        query: List[str] = []
-        response = []
-        system = None
-        history = None
-        for i, d in enumerate(tqdm(dataset)):
-            inst, inp = d['instruction'], d.get('input', None)
-            h, output = d.pop('history', None), d['output']
-            sys = d.pop('system', None)
-            if history is None and h is not None:
-                history = [None for _ in range(i - 1)]
-            if system is None and sys is not None:
-                system = [None for _ in range(i - 1)]
-            if output is None:
-                continue
-            if inp is None or len(inp) == 0:
-                q = inst
-            elif self.concat_inst_inp is not None:
-                q = self.concat_inst_inp(inst, inp)
-            else:
-                q = f'{inst}\n{inp}'
-            query.append(q)
-            response.append(output)
-            if history is not None:
-                history.append(h)
-            if system is not None:
-                system.append(sys)
-        d_dict = {'query': query, 'response': response}
-        if history is not None:
-            d_dict['history'] = history
-        if system is not None:
-            d_dict['system'] = system
-        dataset = HfDataset.from_dict(d_dict)
+        dataset = dataset.map(
+            self.preprocess,
+            load_from_cache_file=dataset_enable_cache).filter(lambda row: row.get('response') is not None)
+        if self.media_type and isinstance(self.media_key, str) and self.media_key != self.media_name:
+            dataset = dataset.rename_columns({self.media_key: self.media_name})
         return dataset
 
 
@@ -83,7 +182,8 @@ def _default_repair_conversations(s: Union[str, Any]) -> Any:
     return s
 
 
-class ConversationsPreprocessor:
+@_reduce_columns
+class ConversationsPreprocessor(MediaMixin, RowPreprocessMixin):
 
     def __init__(self,
                  user_role: str = 'user',
@@ -92,66 +192,143 @@ class ConversationsPreprocessor:
                  conversations_key: str = 'conversations',
                  from_key: str = 'from',
                  value_key: str = 'value',
-                 repair_conversations: Callable[[Union[str, Dict[str, str]]],
-                                                Optional[Dict[str, str]]] = _default_repair_conversations,
-                 error_strategy: Literal['delete', 'raise'] = 'raise'):
+                 tool_role: str = 'tool',
+                 repair_conversations: Callable[[Union[str, List[Dict[str, str]]]],
+                                                Optional[List[Dict[str, str]]]] = _default_repair_conversations,
+                 error_strategy: Literal['delete', 'raise'] = 'raise',
+                 **kwargs):
         self.user_role = user_role
         self.assistant_role = assistant_role
         self.system_role = system_role
         self.conversations_key = conversations_key
         self.from_key = from_key
         self.value_key = value_key
+        self.tool_role = tool_role
         self.repair_conversations = repair_conversations
         self.error_strategy = error_strategy
+        super().__init__(**kwargs)
+
+    @property
+    def empty_row(self):
+        empty_row = super().empty_row
+        empty_row['history_roles'] = None
+        empty_row['query_role'] = None
+        empty_row['tools'] = None
+        return empty_row
+
+    def preprocess(self, d: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            conversations = d[self.conversations_key]
+            conversations = self.repair_conversations(conversations)
+            if conversations is None:
+                return self.empty_row
+            lo = 0
+            sys = None
+            h: History = []
+            hr: History = []
+            assert len(conversations) >= 2
+            if conversations[0][self.from_key] == self.system_role:
+                lo += 1
+                sys = conversations[0][self.value_key]
+            assert conversations[-2][self.from_key] in [self.user_role, self.tool_role]
+            assert conversations[-1][self.from_key] == self.assistant_role
+
+            for q, r in zip(conversations[lo:-2:2], conversations[lo + 1:-2:2]):
+                assert q[self.from_key] in [self.user_role, self.tool_role]
+                assert r[self.from_key] == self.assistant_role
+                h.append([q[self.value_key], r[self.value_key]])
+                hr.append([q[self.from_key], r[self.from_key]])
+            query = conversations[-2][self.value_key]
+            query_role = conversations[-2][self.from_key]
+            query_role = query_role if query_role == 'tool' else 'user'
+            response = conversations[-1][self.value_key]
+            system = sys
+            history = h
+            tools = d.get('tools') or []
+            row = {'system': system, 'history': history, 'history_roles': hr}
+            row.update({
+                'query': query,
+                'query_role': query_role,
+                'response': response,
+                'tools': tools,
+            })
+            medias = self.parse_medias(d)
+            self.media_replacer(row, medias)
+            if self.media_type:
+                if not isinstance(self.media_key, str):
+                    row[self.media_name] = medias
+                else:
+                    row[self.media_key] = medias
+            return row
+        except (AssertionError, SyntaxError):
+            if self.error_strategy == 'raise':
+                raise ValueError(f'conversations: {conversations}')
+            else:
+                return self.empty_row
 
     def __call__(self, dataset: HfDataset) -> HfDataset:
-        query: List[str] = []
-        response: List[str] = []
-        system: List[Optional[str]] = []
-        has_system = False
-        history: List[History] = []
-        has_history = False
+        dataset = dataset.map(
+            self.preprocess,
+            load_from_cache_file=dataset_enable_cache).filter(lambda row: row.get('response') is not None)
+        if self.media_type and isinstance(self.media_key, str) and self.media_key != self.media_name:
+            dataset = dataset.rename_columns({self.media_key: self.media_name})
+        return dataset
 
-        for d in tqdm(dataset):
-            try:
-                conversations = d[self.conversations_key]
-                conversations = self.repair_conversations(conversations)
-                if conversations is None:
-                    continue
-                lo = 0
-                sys = None
-                h: History = []
-                assert len(conversations) >= 2
-                if conversations[0][self.from_key] == self.system_role:
-                    has_system = True
-                    lo += 1
-                    sys = conversations[0][self.value_key]
-                assert conversations[-2][self.from_key] == self.user_role
-                assert conversations[-1][self.from_key] == self.assistant_role
 
-                for q, r in zip(conversations[lo:-2:2], conversations[lo + 1:-2:2]):
-                    assert q[self.from_key] == self.user_role
-                    assert r[self.from_key] == self.assistant_role
-                    h.append([q[self.value_key], r[self.value_key]])
-                if len(h) > 0:
-                    has_history = True
-                query.append(conversations[-2][self.value_key])
-                response.append(conversations[-1][self.value_key])
-                system.append(sys)
-                history.append(h)
-            except (AssertionError, SyntaxError):
-                if self.error_strategy == 'raise':
-                    raise ValueError(f'conversations: {conversations}')
-        kwargs = {}
-        if has_system:
-            kwargs['system'] = system
-        kwargs.update({
-            'query': query,
-            'response': response,
-        })
-        if has_history:
-            kwargs['history'] = history
-        dataset = HfDataset.from_dict(kwargs)
+class ListPreprocessor(MediaMixin, RowPreprocessMixin):
+
+    def __init__(self,
+                 query_key: str = 'user',
+                 response_key: str = 'assistant',
+                 conversations_key: str = 'conversations',
+                 inner_key: str = None,
+                 repair_conversations: Callable[[Union[str, Dict[str, str]]],
+                                                Optional[Dict[str, str]]] = _default_repair_conversations,
+                 error_strategy: Literal['delete', 'raise'] = 'raise',
+                 **kwargs):
+        self.query_key = query_key
+        self.response_key = response_key
+        self.conversations_key = conversations_key
+        self.inner_key = inner_key
+        self.repair_conversations = repair_conversations
+        self.error_strategy = error_strategy
+        super().__init__(**kwargs)
+
+    def preprocess(self, d: Dict[str, Any]) -> Dict[str, Any]:
+        conversations = None
+        try:
+            conversations = d[self.conversations_key]
+            if self.inner_key is not None:
+                conversations = conversations[self.inner_key]
+            history = []
+            for c in conversations:
+                history.append([c[self.query_key], c[self.response_key]])
+
+            query, response = history.pop(-1)
+            row = {
+                'history': history,
+                'query': query,
+                'response': response,
+            }
+            medias = self.parse_medias(d)
+            self.media_replacer(row, medias)
+            if self.media_type:
+                if not isinstance(self.media_key, str):
+                    row[self.media_name] = medias
+                else:
+                    row[self.media_key] = medias
+        except Exception:
+            if self.error_strategy == 'raise':
+                raise ValueError(f'conversations: {conversations}')
+            else:
+                return self.empty_row
+        return row
+
+    def __call__(self, dataset: HfDataset):
+        dataset = dataset.map(
+            self.preprocess, load_from_cache_file=dataset_enable_cache).filter(lambda d: d.get('response'))
+        if self.media_type and isinstance(self.media_key, str) and self.media_key != self.media_name:
+            dataset = dataset.rename_columns({self.media_key: self.media_name})
         return dataset
 
 

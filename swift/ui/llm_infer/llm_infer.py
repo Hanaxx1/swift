@@ -2,7 +2,6 @@ import os
 import re
 import sys
 import time
-from copy import copy
 from datetime import datetime
 from functools import partial
 from typing import Type
@@ -11,11 +10,10 @@ import gradio as gr
 import json
 import torch
 from gradio import Accordion, Tab
-from modelscope import GenerationConfig
+from modelscope import GenerationConfig, snapshot_download
 
-from swift import snapshot_download
-from swift.llm import (DeployArguments, InferArguments, XRequestConfig, inference_client, inference_stream,
-                       limit_history_length, prepare_model_template)
+from swift.llm import (TEMPLATE_MAPPING, DeployArguments, InferArguments, XRequestConfig, inference_client,
+                       inference_stream, prepare_model_template)
 from swift.ui.base import BaseUI
 from swift.ui.llm_infer.model import Model
 from swift.ui.llm_infer.runtime import Runtime
@@ -70,6 +68,16 @@ class LLMInfer(BaseUI):
                 'en': 'Chat bot'
             },
         },
+        'infer_model_type': {
+            'label': {
+                'zh': 'Lora模块',
+                'en': 'Lora module'
+            },
+            'info': {
+                'zh': '发送给server端哪个LoRA，默认为`default-lora`',
+                'en': 'Which LoRA to use on server, default value is `default-lora`'
+            }
+        },
         'prompt': {
             'label': {
                 'zh': '请输入：',
@@ -117,12 +125,14 @@ class LLMInfer(BaseUI):
                 history = gr.State([])
                 Model.build_ui(base_tab)
                 Runtime.build_ui(base_tab)
-                gr.Dropdown(
-                    elem_id='gpu_id',
-                    multiselect=True,
-                    choices=[str(i) for i in range(gpu_count)] + ['cpu'],
-                    value=default_device,
-                    scale=8)
+                with gr.Row():
+                    gr.Dropdown(
+                        elem_id='gpu_id',
+                        multiselect=True,
+                        choices=[str(i) for i in range(gpu_count)] + ['cpu'],
+                        value=default_device,
+                        scale=8)
+                    infer_model_type = gr.Textbox(elem_id='infer_model_type', scale=4)
                 chatbot = gr.Chatbot(elem_id='chatbot', elem_classes='control-height')
                 with gr.Row():
                     prompt = gr.Textbox(elem_id='prompt', lines=1, interactive=True)
@@ -173,7 +183,7 @@ class LLMInfer(BaseUI):
                         cls.send_message,
                         inputs=[
                             cls.element('running_tasks'), model_and_template,
-                            cls.element('template_type'), prompt, image, history,
+                            cls.element('template_type'), prompt, image, history, infer_model_type,
                             cls.element('system'),
                             cls.element('max_new_tokens'),
                             cls.element('temperature'),
@@ -215,8 +225,10 @@ class LLMInfer(BaseUI):
                     value = int(value)
                 elif isinstance(value, str) and re.fullmatch(cls.float_regex, value):
                     value = float(value)
+                elif isinstance(value, str) and re.fullmatch(cls.bool_regex, value):
+                    value = True if value.lower() == 'true' else False
                 kwargs[key] = value if not isinstance(value, list) else ' '.join(value)
-                kwargs_is_list[key] = isinstance(value, list)
+                kwargs_is_list[key] = isinstance(value, list) or getattr(cls.element(key), 'is_list', False)
             else:
                 other_kwargs[key] = value
             if key == 'more_params' and value:
@@ -317,6 +329,8 @@ class LLMInfer(BaseUI):
                     value = int(value)
                 elif isinstance(value, str) and re.fullmatch(cls.float_regex, value):
                     value = float(value)
+                elif isinstance(value, str) and re.fullmatch(cls.bool_regex, value):
+                    value = True if value.lower() == 'true' else False
                 kwargs[key] = value if not isinstance(value, list) else ' '.join(value)
                 kwargs_is_list[key] = isinstance(value, list)
             else:
@@ -346,7 +360,7 @@ class LLMInfer(BaseUI):
 
     @classmethod
     def clear_session(cls):
-        return '', [], None, []
+        return '', [], gr.update(value=None, interactive=True), []
 
     @classmethod
     def change_interactive(cls):
@@ -363,8 +377,16 @@ class LLMInfer(BaseUI):
         return total_history
 
     @classmethod
-    def send_message(cls, running_task, model_and_template, template_type, prompt: str, image, history, system,
-                     max_new_tokens, temperature, top_k, top_p, repetition_penalty):
+    def agent_type(cls, response):
+        if response.lower().endswith('observation:'):
+            return 'react'
+        if 'observation:' not in response.lower() and 'action input:' in response.lower():
+            return 'toolbench'
+        return None
+
+    @classmethod
+    def send_message(cls, running_task, model_and_template, template_type, prompt: str, image, history,
+                     infer_model_type, system, max_new_tokens, temperature, top_k, top_p, repetition_penalty):
         if not model_and_template:
             gr.Warning(cls.locale('generate_alert', cls.lang)['value'])
             return '', None, None, []
@@ -381,6 +403,8 @@ class LLMInfer(BaseUI):
 
         _, args = Runtime.parse_info_from_cmdline(running_task)
         model_type, template, sft_type = model_and_template
+        if sft_type in ('lora', 'longlora') and not args.get('merge_lora'):
+            model_type = infer_model_type or 'default-lora'
         old_history, history = history or [], []
         request_config = XRequestConfig(
             temperature=temperature, top_k=top_k, top_p=top_p, repetition_penalty=repetition_penalty)
@@ -388,20 +412,38 @@ class LLMInfer(BaseUI):
         request_config.stop = ['Observation:']
         stream_resp_with_history = ''
         medias = [m for h in old_history for m in h[2]]
+        media_infer_type = TEMPLATE_MAPPING[template].get('infer_media_type', 'round')
+        image_interactive = media_infer_type != 'dialogue'
+
+        text_history = [h for h in old_history if h[0]]
+        roles = []
+        for i in range(len(text_history) + 1):
+            roles.append(['user', 'assistant'])
+
+        for i, h in enumerate(text_history):
+            agent_type = cls.agent_type(h[1])
+            if i < len(text_history) - 1 and agent_type == 'toolbench':
+                roles[i + 1][0] = 'tool'
+            if i == len(text_history) - 1 and agent_type in ('toolbench', 'react'):
+                roles[i + 1][0] = 'tool'
+
         if not template_type.endswith('generation'):
             stream_resp = inference_client(
                 model_type,
                 prompt,
                 images=medias,
-                history=[h[:2] for h in old_history if h[0]],
+                history=[h[:2] for h in text_history],
                 system=system,
                 port=args['port'],
-                request_config=request_config)
+                request_config=request_config,
+                roles=roles,
+            )
             for chunk in stream_resp:
                 stream_resp_with_history += chunk.choices[0].delta.content
                 old_history[-1][0] = prompt
                 old_history[-1][1] = stream_resp_with_history
-                yield '', cls._replace_tag_with_media(old_history), None, old_history
+                yield ('', cls._replace_tag_with_media(old_history),
+                       gr.update(value=None, interactive=image_interactive), old_history)
         else:
             request_config.max_tokens = max_new_tokens
             stream_resp = inference_client(
@@ -410,7 +452,8 @@ class LLMInfer(BaseUI):
                 stream_resp_with_history += chunk.choices[0].text
                 old_history[-1][0] = prompt
                 old_history[-1][1] = stream_resp_with_history
-                yield '', cls._replace_tag_with_media(old_history), None, old_history
+                yield ('', cls._replace_tag_with_media(old_history),
+                       gr.update(value=None, interactive=image_interactive), old_history)
 
     @classmethod
     def generate_chat(cls, model_and_template, template_type, prompt: str, image, history, system, max_new_tokens,
