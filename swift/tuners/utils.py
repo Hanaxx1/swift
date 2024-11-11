@@ -13,13 +13,13 @@ from typing import Dict, Optional, Union
 import json
 import numpy as np
 import torch
+from modelscope import snapshot_download
+from modelscope.hub.utils.utils import get_cache_dir
 from packaging import version
 from peft.utils import CONFIG_NAME
 from peft.utils import ModulesToSaveWrapper as _ModulesToSaveWrapper
 from peft.utils import _get_submodules
 
-from swift.hub.snapshot_download import snapshot_download
-from swift.hub.utils.utils import get_cache_dir
 from swift.tuners.module_mapping import ModelKeys
 from swift.utils.constants import BIN_EXTENSIONS
 from swift.utils.logger import get_logger

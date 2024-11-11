@@ -6,6 +6,7 @@
 - [dpo Parameters](#dpo-parameters)
 - [merge-lora infer Parameters](#merge-lora-infer-parameters)
 - [export Parameters](#export-parameters)
+- [eval Parameters](#eval-parameters)
 - [app-ui Parameters](#app-ui-parameters)
 - [deploy Parameters](#deploy-parameters)
 
@@ -21,14 +22,15 @@
 - `--sft_type`: Fine-tuning method, default is `'lora'`. Options include: 'lora', 'full', 'longlora', 'adalora', 'ia3', 'llamapro', 'adapter', 'vera', 'boft'. If using qlora, you need to set `--sft_type lora --quantization_bit 4`.
 - `--packing`: pack the dataset length to `max-length`, default `False`.
 - `--freeze_parameters`: When sft_type is set to 'full', freeze the bottommost parameters of the model. Range is 0. ~ 1., default is `0.`. This provides a compromise between lora and full fine-tuning.
-- `--additional_trainable_parameters`: In addition to freeze_parameters, only allowed when sft_type is 'full', default is `[]`. For example, if you want to train embedding layer in addition to 50% of parameters, you can set `--freeze_parameters 0.5 --additional_trainable_parameters transformer.wte`, all parameters starting with `transformer.wte` will be activated.
+- `--additional_trainable_parameters`: In addition to freeze_parameters, only allowed when sft_type is 'full', default is `[]`. For example, if you want to train embedding layer in addition to 50% of parameters, you can set `--freeze_parameters 0.5 --additional_trainable_parameters transformer.wte`, all parameters starting with `transformer.wte` will be activated. You can also set `--freeze_parameters 1 --additional_trainable_parameters xxx` to customize the trainable layers.
 - `--tuner_backend`: Backend support for lora, qlora, default is `'peft'`. Options include: 'swift', 'peft', 'unsloth'.
 - `--template_type`: Type of dialogue template used, default is `'AUTO'`, i.e. look up `template` in `MODEL_MAPPING` based on `model_type`. Available `template_type` options can be found in `TEMPLATE_MAPPING.keys()`.
 - `--output_dir`: Directory to store ckpt, default is `'output'`. We will append `model_type` and fine-tuning version number to this directory, allowing users to do multiple comparative experiments on different models without changing the `output_dir` command line argument. If you don't want to append this content, specify `--add_output_dir_suffix false`.
 - `--add_output_dir_suffix`: Default is `True`, indicating that a suffix of `model_type` and fine-tuning version number will be appended to the `output_dir` directory. Set to `False` to avoid this behavior.
 - `--ddp_backend`: Backend support for distributed training, default is `None`. Options include: 'nccl', 'gloo', 'mpi', 'ccl'.
 - `--seed`: Global seed, default is `42`. Used to reproduce training results.
-- `--resume_from_checkpoint`: For resuming training from checkpoint, default is `None`. You can set this to the path of a checkpoint, e.g. `'output/qwen-7b-chat/vx-xxx/checkpoint-xxx'`, to resume training.
+- `--resume_from_checkpoint`: Used for resuming training from a checkpoint, default is `None`. You can set it to the path of the checkpoint, for example: `--resume_from_checkpoint output/qwen-7b-chat/vx-xxx/checkpoint-xxx`, to resume training from that point. Supports adjusting `--resume_only_model` to only read the model file during checkpoint continuation.
+- `--resume_only_model`: Default is `False`, which means strict checkpoint continuation, this will read the weights of the model, optimizer, lr_scheduler, and the random seeds stored on each device, and continue training from the last paused steps. If set to `True`, it will only read the weights of the model.
 - `--dtype`: torch_dtype when loading base model, default is `'AUTO'`, i.e. intelligently select dtype: if machine does not support bf16, use fp16; if `MODEL_MAPPING` specifies torch_dtype for corresponding model, use its dtype; otherwise use bf16. Options include: 'bf16', 'fp16', 'fp32'.
 - `--dataset`: Used to select the training dataset, default is `[]`. You can see the list of available datasets [here](Supported-models-datasets.md#Datasets). If you need to train with multiple datasets, you can use ',' or ' ' to separate them, for example: `--dataset alpaca-en,alpaca-zh` or `--dataset alpaca-en alpaca-zh`. It supports Modelscope Hub/HuggingFace Hub/local paths, subset selection, and dataset sampling. The specified format for each dataset is as follows: `[HF or MS::]{dataset_name} or {dataset_id} or {dataset_path}[:subset1/subset2/...][#dataset_sample]`. The simplest case requires specifying only dataset_name, dataset_id, or dataset_path. Customizing datasets can be found in the [Customizing and Extending Datasets document](Customization.md#custom-dataset)
   - Supports MS and HF hub, as well as dataset_sample. For example, 'MS::alpaca-zh#2000', 'HF::jd-sentiment-zh#2000' (the default hub used is controlled by the `USE_UF` environment variable, default is MS).
@@ -41,6 +43,7 @@
 - `--train_dataset_sample`: The number of samples for the training dataset, default is `-1`, which means using the complete training dataset for training. This parameter is deprecated, please use `--dataset {dataset_name}#{dataset_sample}` instead.
 - `--val_dataset_sample`: Used to sample the validation set, with a default value of `None`, which automatically selects a suitable number of data samples for validation. If you specify `-1`, the complete validation set is used for validation. This parameter is deprecated and the number of samples in the validation set is controlled by `--dataset_test_ratio` or `--val_dataset {dataset_name}#{dataset_sample}`.
 - `--system`: System used in dialogue template, default is `None`, i.e. use the model's default system. If set to '', no system is used.
+- `--tools_prompt`: Select the corresponding tools system prompt for the tools field transformation. The options are ['react_en', 'react_zh', 'toolbench'], which correspond to the English version of ReAct format, Chinese version of ReAct format and the toolbench format, respectively. The default is the English version of the ReAct format. For more information, you can refer to the [Agent Deployment Best Practices](Agent-deployment-best-practices.md).
 - `--max_length`: Maximum token length, default is `2048`. Avoids OOM issues caused by individual overly long samples. When `--truncation_strategy delete` is specified, samples exceeding max_length will be deleted. When `--truncation_strategy truncation_left` is specified, the leftmost tokens will be truncated: `input_ids[-max_length:]`. If set to -1, no limit.
 - `--truncation_strategy`: Default is `'delete'` which removes sentences exceeding max_length from dataset. `'truncation_left'` will truncate excess text from the left, which may truncate special tokens and affect performance, not recommended.
 - `--check_dataset_strategy`: Default is `'none'`, i.e. no checking. If training an LLM model, `'warning'` is recommended as data check strategy. If your training target is sentence classification etc., setting to `'none'` is recommended.
@@ -60,6 +63,7 @@
 - `--bnb_4bit_use_double_quant`: Whether to enable double quantization for 4bit quantization, default is `True`. Has no effect when quantization_bit is 0.
 - `--bnb_4bit_quant_storage`: Default vlaue `None`.This sets the storage type to pack the quanitzed 4-bit prarams. Has no effect when quantization_bit is 0.
 - `--lora_target_modules`: Specify lora modules, default is `['DEFAULT']`. If lora_target_modules is passed `'DEFAULT'` or `'AUTO'`, look up `lora_target_modules` in `MODEL_MAPPING` based on `model_type` (default specifies qkv). If passed `'ALL'`, all Linear layers (excluding head) will be specified as lora modules. If passed `'EMBEDDING'`, Embedding layer will be specified as lora module. If memory allows, setting to 'ALL' is recommended. You can also set `['ALL', 'EMBEDDING']` to specify all Linear and embedding layers as lora modules. This parameter only takes effect when `sft_type` is 'lora'.
+- `--lora_target_regex`: The lora target regex in `Optional[str]`. default is `None`. If this argument is specified, the `lora_target_modules` will have no effect.
 - `--lora_rank`: Default is `8`. Only takes effect when `sft_type` is 'lora'.
 - `--lora_alpha`: Default is `32`. Only takes effect when `sft_type` is 'lora'.
 - `--lora_dropout_p`: Default is `0.05`, only takes effect when `sft_type` is 'lora'.
@@ -83,13 +87,15 @@
 - `--gradient_accumulation_steps`: Gradient accumulation, default is `None`, set to `math.ceil(16 / self.batch_size / world_size)`. `total_batch_size =  batch_size * gradient_accumulation_steps * world_size`.
 - `--max_grad_norm`: Gradient clipping, default is `0.5`.
 - `--predict_with_generate`: Whether to use generation for evaluation, default is `False`. If set to False, evaluate using `loss`. If set to True, evaluate using `ROUGE-L` and other metrics. Generative evaluation takes a long time, choose carefully.
-- `--lr_scheduler_type`: Default is `'linear'`, options: 'linear', 'cosine', 'constant', etc.
+- `--lr_scheduler_type`: Default is `'cosine'`, options: 'linear', 'cosine', 'constant', etc.
 - `--warmup_ratio`: Proportion of warmup in total training steps, default is `0.05`.
+- `--warmup_steps`: The number of warmup steps, default is `0`. If warmup_steps > 0 is set, it overrides warmup_ratio.
 - `--eval_steps`: Evaluate every this many steps, default is `50`.
 - `--save_steps`: Save every this many steps, default is `None`, i.e. set to `eval_steps`.
 - `--save_only_model`: Whether to save only model parameters, without saving intermediate states needed for checkpoint resuming, default is `None`, i.e. if `sft_type` is 'lora' and not using deepspeed (`deepspeed` is `None`), set to False, otherwise set to True (e.g. using full fine-tuning or deepspeed).
 - `--save_total_limit`: Number of checkpoints to save, default is `2`, i.e. save best and last checkpoint. If set to -1, save all checkpoints.
 - `--logging_steps`: Print training information (e.g. loss, learning_rate, etc.) every this many steps, default is `5`.
+- `--acc_steps`: How often to calculate the accuracy information during training, by default it is calculated every `1` iteration.
 - `--dataloader_num_workers`: Default value is `None`. If running on a Windows machine, set it to `0`; otherwise, set it to `1`.
 - `--push_to_hub`: Whether to sync push trained checkpoint to ModelScope Hub, default is `False`.
 - `--hub_model_id`: Model_id to push to on ModelScope Hub, default is `None`, i.e. set to `f'{model_type}-{sft_type}'`. You can set this to model_id or repo_name. We will infer user_name based on hub_token. If the remote repository to push to does not exist, a new repository will be created, otherwise the previous repository will be reused. This parameter only takes effect when `push_to_hub` is set to True.
@@ -122,9 +128,15 @@
 - `--train_dataset_mix_ratio`: Default is `0.`. This parameter defines how to mix datasets for training. When this parameter is specified, it will mix the training dataset with a multiple of `train_dataset_mix_ratio` of the general knowledge dataset specified by `train_dataset_mix_ds`. This parameter has been deprecated, please use `--dataset {dataset_name}#{dataset_sample}` to mix datasets.
 - `--train_dataset_mix_ds`: Default is `['ms-bench']`. Used for preventing knowledge forgetting, this is the general knowledge dataset. This parameter has been deprecated, please use `--dataset {dataset_name}#{dataset_sample}` to mix datasets.
 - `--use_loss_scale`: Default is `False`. When taking effect, strengthens loss weight of some Agent fields (Action/Action Input part) to enhance CoT, has no effect in regular SFT scenarios.
+- `loss_scale_config_path`: option specifies a custom loss_scale configuration, applicable when use_loss_scale is enabled, such as in Agent training to amplify the loss weights for Action and other crucial ReAct fields.
+  - In the configuration file, you can set the loss_scale using a dictionary format. Each key represents a specific field name, and its associated value specifies the loss scaling factor for that field and its subsequent content. For instance, setting `"Observation:": [2, 0]` means that when the response contains `xxxx Observation:error`, the loss for the `Observation:` field will be doubled, while the loss for the `error` portion will not be counted. Besides literal matching, the configuration also supports regular expression rules for more flexible matching; for example, the pattern `'<.*?>':[2.0]` doubles the loss for any content enclosed in angle brackets. The loss scaling factors for field matching and regex matching are respectively indicated by lists of length 2 and 1.
+  - There is also support for setting loss_scale for the entire response based on matching queries, which is extremely useful in dealing with fixed multi-turn dialogue queries described in the [Agent-Flan paper](https://arxiv.org/abs/2403.12881) paper. If the query includes any of the predefined keys, the corresponding response will use the associated loss_scale value. Refer to swift/llm/agent/agentflan.json for an example.
+  - By default, we have preset loss scaling values for fields such as Action:, Action Input:, Thought:, Final Answer:, and Observation:. We also provide default configurations for [alpha-umi](https://arxiv.org/pdf/2401.07324) and [Agent-FLAN](https://arxiv.org/abs/2403.12881), which you can use by setting to alpha-umi and agent-flan respectively. The default configuration files are located under swift/llm/agent.
+  - The application priority of matching rules is as follows, from highest to lowest: query fields > specific response fields > regular expression matching rules.
 - `--custom_register_path`: Default is `None`. Pass in a `.py` file used to register templates, models, and datasets.
 - `--custom_dataset_info`: Default is `None`. Pass in the path to an external `dataset_info.json`, a JSON string, or a dictionary. Used to register custom datasets. The format example: https://github.com/modelscope/swift/blob/main/swift/llm/data/dataset_info.json
-- `device_map_config_path`: Manually configure the model's device map from a local file, defaults to None.
+- `--device_map_config_path`: Manually configure the model's device map from a local file, defaults to None.
+- `--device_max_memory`: The max memory of each device can use for `device_map`, `List`, default is `[]`, The number of values must equal to the device count. Like `10GB 10GB`.
 
 ### Long Context
 
@@ -215,17 +227,20 @@ The following parameters take effect when `sft_type` is set to `ia3`.
 - `--ia3_feedforward_modules`: Specify the Linear name of IA3's MLP, this name must be in `ia3_target_modules`.
 - `--ia3_modules_to_save`: Additional modules participating in IA3 training. See meaning of `lora_modules_to_save`.
 
-## dpo Parameters
-
-dpo parameters inherit from sft parameters, with the following added parameters:
-
-- `--ref_model_type`: Type of reference model, available `model_type` options can be found in `MODEL_MAPPING.keys()`.
-- `--ref_model_id_or_path`: The local cache dir for reference model, default `None`.
-- `--max_prompt_length`: Maximum prompt length, this parameter is passed to DPOTrainer, setting prompt length to not exceed this value, default is `1024`.
-- `--beta`: Regularization term for DPO logits, default is 0.1.
-- `--label_smoothing`: Whether to use DPO smoothing, default is 0, generally set between 0~0.5.
-- `--loss_type`: DPOloss type, supports 'sigmoid', 'hinge', 'ipo', 'kto_pair', default is 'sigmoid'.
-- `--sft_beta`: Whether to add sft loss in DPO, default is 0.1, supports [0, 1) interval, final loss is `(1-sft_beta)*KL_loss + sft_beta * sft_loss`.
+## RLHF Parameters
+RLHF parameters are an extension of the sft parameters, with the addition of the following options:
+- `--rlhf_type`: Choose the alignment algorithm, with options such as 'dpo', 'orpo', 'simpo', 'kto', 'cpo'. For training scripts with  different algorithms, please refer to [document](./Human-Preference-Alignment-Training-Documentation.md)
+- `--ref_model_type`: Select the reference model, similar to the model_type parameter, by default consistent with the model being trained. No selection is necessary for `cpo` and `simpo` algorithms.
+- `--ref_model_id_or_path`: Local cache path for the reference model, default is `None`.
+- `--max_prompt_length`: The maximum length of the prompt. This parameter is passed to the corresponding Trainer to ensure the prompt length does not exceed the set value. The default value is `1024`.
+- `--beta`: Coefficient for the KL regularization term. For `simpo` the default is 2.0, for other algorithms, the default is 0.1. For detail please check[document](./Human-Preference-Alignment-Training-Documentation.md)
+- `--label_smoothing`: Whether to use DPO smoothing, the default value is 0, normally set between 0 and 0.5.
+- `--loss_type`: Type of loss, default value is 'sigmoid'.
+- `--sft_beta`: Whether to include sft loss in DPO, default is 0.1, supporting the range $[0, 1)$ . The final loss is `(1-sft_beta)*KL_loss + sft_beta * sft_loss`.
+- `--simpo_gamma`: The reward margin term in the SimPO algorithm, the paper recommends setting it to 0.5-1.5, the default is 1.0.
+- `--cpo_alpha`: The coefficient for the NLL loss in the CPO loss, with a default value of 1.0. In SimPO, a mixed NLL loss is employed to enhance training stability.
+- `--desirable_weight`: The loss weight for desirable responses $\lambda_D$ in the KTO algorithm, default is 1.0.
+- `--undesirable_weight`: The loss weight for undesirable responses $\lambda_U$ in the KTO paper, default is 1.0. Let $n_d$ and $n_u$ represent the number of desirable and undesirable examples in the dataset, respectively. The paper recommends controlling $\frac{\lambda_D n_D}{\lambda_Un_U} \in [1,\frac{4}{3}]$.
 
 ## merge-lora infer Parameters
 
@@ -239,7 +254,8 @@ dpo parameters inherit from sft parameters, with the following added parameters:
 - `--load_args_from_ckpt_dir`: Whether to read model configuration info from `sft_args.json` file in `ckpt_dir`. Default is `True`.
 - `--load_dataset_config`: This parameter only takes effect when `--load_args_from_ckpt_dir true`. I.e. whether to read dataset related configuration from `sft_args.json` file in `ckpt_dir`. Default is `False`.
 - `--eval_human`: Whether to evaluate using validation set portion of dataset or manual evaluation. Default is `None`, for intelligent selection, if no datasets (including custom datasets) are passed, manual evaluation will be used. If datasets are passed, dataset evaluation will be used.
-- `device_map_config_path`: Manually configure the model's device map from a local file, defaults to None.
+- `--device_map_config_path`: Manually configure the model's device map from a local file, defaults to None.
+- `--device_max_memory`: The max memory of each device can use for `device_map`, `List`, default is `[]`, The number of values must equal to the device count. Like `10GB 10GB`.
 - `--seed`: Default is `42`, see `sft.sh command line arguments` for parameter details.
 - `--dtype`: Default is `'AUTO`, see `sft.sh command line arguments` for parameter details.
 - `--dataset`: Default is `[]`, see `sft.sh command line arguments` for parameter details.
@@ -248,6 +264,7 @@ dpo parameters inherit from sft parameters, with the following added parameters:
 `--dataset_test_ratio`: Default value is `0.01`. For specific parameter details, refer to the `sft.sh command line arguments`.
 - `--show_dataset_sample`: Represents number of validation set samples to evaluate and display, default is `10`.
 - `--system`: Default is `None`. See `sft.sh command line arguments` for parameter details.
+- `--tools_prompt`: Default is `react_en`. See `sft.sh command line arguments` for parameter details.
 - `--max_length`: Default is `-1`. See `sft.sh command line arguments` for parameter details.
 - `--truncation_strategy`: Default is `'delete'`. See `sft.sh command line arguments` for parameter details.
 - `--check_dataset_strategy`: Default is `'none'`, see `sft.sh command line arguments` for parameter details.
@@ -279,6 +296,8 @@ dpo parameters inherit from sft parameters, with the following added parameters:
 - `--gpu_memory_utilization`: Parameter for initializing vllm engine `EngineArgs`, default is `0.9`. This parameter only takes effect when using vllm. VLLM inference acceleration and deployment can be found in [VLLM Inference Acceleration and Deployment](VLLM-inference-acceleration-and-deployment.md).
 - `--tensor_parallel_size`: Parameter for initializing vllm engine `EngineArgs`, default is `1`. This parameter only takes effect when using vllm.
 - `--max_model_len`: Override model's max_model__len, default is `None`. This parameter only takes effect when using vllm.
+- `--disable_custom_all_reduce`: Whether to disable the custom all-reduce kernel and fallback to NCCL. The default is `True`, which is different from the default value of vLLM.
+- `--enforce_eager`: vllm uses the PyTorch eager mode or builds the CUDA graph. Default is `False`. Setting to True can save memory, but it may affect efficiency.
 - `--vllm_enable_lora`: Default `False`. Whether to support vllm with lora.
 - `--vllm_max_lora_rank`: Default `16`.  Lora rank in VLLM.
 - `--lora_modules`: Default`[]`, the input format is `'{lora_name}={lora_path}'`, e.g. `--lora_modules lora_name1=lora_path1 lora_name2=lora_path2`. `ckpt_dir` will be added with `f'default-lora={args.ckpt_dir}'` by default.
@@ -290,7 +309,7 @@ dpo parameters inherit from sft parameters, with the following added parameters:
 ## export Parameters
 
 export parameters inherit from infer parameters, with the following added parameters:
-
+- `--to_peft_format`: Default is `False`. Convert the swift format of LoRA (`--tuner_backend swift`) to peft format.
 - `--merge_lora`: Default is `False`. This parameter is already defined in InferArguments, not a new parameter. Whether to merge lora weights into base model and save full weights. Weights will be saved in the same level directory as `ckpt_dir`, e.g. `'/path/to/your/vx-xxx/checkpoint-xxx-merged'` directory.
 - `--quant_bits`: Number of bits for quantization. Default is `0`, i.e. no quantization. If you set `--quant_method awq`, you can set this to `4` for 4bits quantization. If you set `--quant_method gptq`, you can set this to `2`,`3`,`4`,`8` for corresponding bits quantization. If quantizing original model, weights will be saved in `f'{args.model_type}-{args.quant_method}-int{args.quant_bits}'` directory. If quantizing fine-tuned model, weights will be saved in the same level directory as `ckpt_dir`, e.g. `f'/path/to/your/vx-xxx/checkpoint-xxx-{args.quant_method}-int{args.quant_bits}'` directory.
 - `--quant_method`: Quantization method, default is `'awq'`. Options are 'awq', 'gptq'.
@@ -307,28 +326,26 @@ export parameters inherit from infer parameters, with the following added parame
 
 ## eval parameters
 
-The eval parameters inherit from the infer parameters, and additionally include the following parameters:
+The eval parameters inherit from the infer parameters, and additionally include the following parameters: (Note: The generation_config parameter in infer will be invalid, controlled by [evalscope](https://github.com/modelscope/eval-scope).)
 
-- `--name`: Default is `None`. The name of the evaluation, the final evaluation results will be stored in a folder named `{{model_type}-{name}}`.
-
-- `--eval_dataset`: The official dataset for evaluation, the default value is `['ceval', 'gsm8k', 'arc']`, and `mmlu` and `bbh` datasets are also supported. If you only need to evaluate a custom dataset, you can set this parameter to `no`.
-
-- `--eval_limit`: The number of samples for each sub-dataset of the evaluation set, default is `None` which means full evaluation.
-
-- `--eval_few_shot`: The number of few-shot instances for each sub-dataset of the evaluation set, default is `None` which means using the default configuration of the dataset.
-
-- `--custom_eval_config`: Use a custom dataset for evaluation, this should be a local file path, the file format is described in [Custom Evaluation Set](./LLM-eval.md#Custom-Evaluation-Set).
-
-- `--eval_use_cache`: Whether to use the evaluation cache, if True, the eval process will only refresh the eval results. Default `False`.
-
-- `--eval_url`: The url of OpenAI standard model service. For example: `http://127.0.0.1:8000/v1`.
-
+- `--eval_dataset`: The official evaluation dataset, default is `None`, means all datasets. if `custom_eval_config` is specified, this arg will be ignored.
+  ```text
+  Currently supported datasets include: 'obqa', 'AX_b', 'siqa', 'nq', 'mbpp', 'winogrande', 'mmlu', 'BoolQ', 'cluewsc', 'ocnli', 'lambada', 'CMRC', 'ceval', 'csl', 'cmnli', 'bbh', 'ReCoRD', 'math', 'humaneval', 'eprstmt', 'WSC', 'storycloze', 'MultiRC', 'RTE', 'chid', 'gsm8k', 'AX_g', 'bustm', 'afqmc', 'piqa', 'lcsts', 'strategyqa', 'Xsum', 'agieval', 'ocnli_fc', 'C3', 'tnews', 'race', 'triviaqa', 'CB', 'WiC', 'hellaswag', 'summedits', 'GaokaoBench', 'ARC_e', 'COPA', 'ARC_c', 'DRCD'
+  ```
+- `--eval_few_shot`: The few-shot number of sub-datasets for each evaluation set, with a default value of `None`, meaning to use the default configuration of the dataset. **This parameter is currently deprecated.**
+- `--eval_limit`: The sampling quantity for each sub-dataset of the evaluation set, with a default value of `None` indicating full-scale evaluation. You can pass integer(number of samples from each eval dataset) or str(`[10:20]`, slice).
+- `--name`: Used to differentiate the result storage path for evaluating the same configuration. Like: `{eval_output_dir}/{name}`, default will be `eval_outputs/defaults`, in which a timestamp named folder will hold each eval result.
+- `--eval_url`: The standard model invocation interface for OpenAI, for example, `http://127.0.0.1:8000/v1`. This needs to be set when evaluating in a deployed manner, usually not needed. Default is `None`.
   ```shell
   swift eval --eval_url http://127.0.0.1:8000/v1 --eval_is_chat_model true --model_type gpt4 --eval_token xxx
   ```
-
-- `--eval_is_chat_model`: If `eval_url` is not None, `eval_is_chat_model` must be passed to tell the url calls a chat or a base model.
-- `--eval_token`: The token of the `eval_url`, default value `EMPTY` means token is not needed.
+- `--eval_token`: The token for the standard model invocation interface for OpenAI, with a default value of `'EMPTY'`, indicating no token.
+- `--eval_is_chat_model`: If `eval_url` is not empty, this value needs to be passed to determine if it is a "chat" model. False represents a "base" model. Default is `None`.
+- `--custom_eval_config`: Used for evaluating with custom datasets, and needs to be a locally existing file path. For details on file format, refer to [Custom Evaluation Set](./LLM-eval.md#Custom-Evaluation-Set). Default is `None`.
+- `--eval_use_cache`: Whether to use already generated evaluation cache, so that previously evaluated results won't be rerun but only the evaluation results regenerated. Default is `False`.
+- `--eval_output_dir`: Output path for evaluation results, default is `eval_outputs` in the current folder.
+- `--eval_batch_size`: Input batch size for evaluation, default is 8.
+- `--deploy_timeout`: The timeout duration for waiting for model deployment before evaluation, default is 60, which means one minute.
 
 ## app-ui Parameters
 

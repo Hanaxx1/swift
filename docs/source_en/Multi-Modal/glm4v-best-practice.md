@@ -9,6 +9,7 @@
 
 ## Environment Setup
 ```shell
+# Please use 'ms-swift>=2.2' or the main branch.
 git clone https://github.com/modelscope/swift.git
 cd swift
 pip install -e '.[llm]'
@@ -163,7 +164,7 @@ CUDA_VISIBLE_DEVICES=0 swift sft \
 NPROC_PER_NODE=2 \
 CUDA_VISIBLE_DEVICES=0,1 swift sft \
     --model_type glm4v-9b-chat \
-    --dataset coco-en-2-mini#10000 \
+    --dataset coco-en-2-mini \
     --ddp_find_unused_parameters true \
 ```
 

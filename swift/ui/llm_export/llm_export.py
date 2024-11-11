@@ -10,8 +10,8 @@ import gradio as gr
 import json
 import torch
 from gradio import Accordion, Tab
+from modelscope import snapshot_download
 
-from swift import snapshot_download
 from swift.llm import ExportArguments
 from swift.ui.base import BaseUI
 from swift.ui.llm_export.export import Export
@@ -53,8 +53,8 @@ class LLMExport(BaseUI):
                 'en': 'Choose GPU'
             },
             'info': {
-                'zh': '选择训练使用的GPU号，如CUDA不可用只能选择CPU',
-                'en': 'Select GPU to train'
+                'zh': '选择使用的GPU号，如CUDA不可用只能选择CPU',
+                'en': 'Select GPU to export'
             }
         },
     }
@@ -121,8 +121,10 @@ class LLMExport(BaseUI):
                     value = int(value)
                 elif isinstance(value, str) and re.fullmatch(cls.float_regex, value):
                     value = float(value)
+                elif isinstance(value, str) and re.fullmatch(cls.bool_regex, value):
+                    value = True if value.lower() == 'true' else False
                 kwargs[key] = value if not isinstance(value, list) else ' '.join(value)
-                kwargs_is_list[key] = isinstance(value, list)
+                kwargs_is_list[key] = isinstance(value, list) or getattr(cls.element(key), 'is_list', False)
             else:
                 other_kwargs[key] = value
             if key == 'more_params' and value:
@@ -134,12 +136,8 @@ class LLMExport(BaseUI):
             if not os.path.exists(model_dir):
                 model_dir = snapshot_download(model_dir)
             kwargs['ckpt_dir'] = model_dir
+            kwargs.pop('model_type')
 
-        if 'ckpt_dir' in kwargs:
-            with open(os.path.join(kwargs['ckpt_dir'], 'sft_args.json'), 'r') as f:
-                _json = json.load(f)
-                kwargs['model_type'] = _json['model_type']
-                kwargs['sft_type'] = _json['sft_type']
         export_args = ExportArguments(
             **{
                 key: value.split(' ') if key in kwargs_is_list and kwargs_is_list[key] else value

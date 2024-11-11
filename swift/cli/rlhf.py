@@ -1,5 +1,5 @@
 # Copyright (c) Alibaba, Inc. and its affiliates.
-from swift.llm import dpo_main
+from swift.llm import rlhf_main
 
 if __name__ == '__main__':
-    dpo_main()
+    rlhf_main()

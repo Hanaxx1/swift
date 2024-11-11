@@ -34,7 +34,8 @@ nproc_per_node=2
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
 NPROC_PER_NODE=$nproc_per_node \
 MASTER_PORT=29500 \
-swift dpo \
+swift rlhf \
+    --rlhf_type dpo \
     --model_type  yi-6b-chat \
     --ref_model_type  yi-6b-chat \
     --model_revision  master \
@@ -77,7 +78,7 @@ cd examples/pytorch/llm
 
 - We default to setting `--gradient_checkpointing true` during training to **save memory**, which will slightly reduce training speed.
 - If you are using older GPUs such as **V100**, you need to set `--dtype AUTO` or `--dtype fp16`, because they do not support bf16.
-- If your machine has high-performance graphics cards like A100 and you are using the qwen series models, we recommend installing [**flash-attn**](https://github.com/Dao-AILab/flash-attention), which will speed up training and inference as well as reduce memory usage (A10, 3090, V100, etc. graphics cards do not support training with flash-attn). Models that support flash-attn can be viewed in [LLM Supported Models](Supported-models-datasets.md#models)
+- If your machine has high-performance graphics cards like A100 and you are using the qwen series models, we recommend installing [**flash-attn**](https://github.com/Dao-AILab/flash-attention), which will speed up training and inference as well as reduce memory usage (3090, V100, etc. graphics cards do not support training with flash-attn). Models that support flash-attn can be viewed in [LLM Supported Models](Supported-models-datasets.md#models)
 - If you need to train offline, please use `--model_id_or_path <model_dir>` and set `--check_model_is_latest false`. For specific parameter meanings, please see [Command Line Arguments](Command-line-parameters.md).
 - If you want to push weights to the ModelScope Hub during training, you need to set `--push_to_hub true`.
 

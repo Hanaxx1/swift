@@ -36,22 +36,17 @@ pip install auto_gptq -U
 pip install bitsandbytes -U
 
 # 使用hqq量化：
-# 需要transformers版本>4.40，从源码安装
-pip install git+https://github.com/huggingface/transformers
+# pip install transformers>=4.41
 pip install hqq
-# 如果要兼容训练，需要从源码安装peft
-pip install git+https://github.com/huggingface/peft.git
 
 # 使用eetq量化：
-# 需要transformers版本>4.40，从源码安装
-pip install git+https://github.com/huggingface/transformers
+# pip install transformers>=4.41
+
 # 参考https://github.com/NetEase-FuXi/EETQ
 git clone https://github.com/NetEase-FuXi/EETQ.git
 cd EETQ/
 git submodule update --init --recursive
 pip install .
-# 如果要兼容训练，需要从源码安装peft
-pip install git+https://github.com/huggingface/peft.git
 
 # 环境对齐 (通常不需要运行. 如果你运行错误, 可以跑下面的代码, 仓库使用最新环境测试)
 pip install -r requirements/framework.txt  -U
@@ -310,7 +305,7 @@ CUDA_VISIBLE_DEVICES=0 swift sft \
 ```
 
 **注意**
-- hqq支持更多自定义参数，比如为不同网络层指定不同量化配置，具体请见[命令行参数](https://github.com/modelscope/swift/blob/main/docs/source/LLM/命令行参数.md)
+- hqq支持更多自定义参数，比如为不同网络层指定不同量化配置，具体请见[命令行参数](命令行参数.md)
 - eetq量化为8bit量化，无需指定quantization_bit。目前不支持bf16，需要指定dtype为fp16
 - eetq目前qlora速度比较慢，推荐使用hqq。参考[issue](https://github.com/NetEase-FuXi/EETQ/issues/17)
 

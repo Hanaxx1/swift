@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel, PeftConfig
 import torch
@@ -52,8 +52,8 @@ model_dir8 = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10
 mistral_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/mistral-7b-chat-v2/v10-20240120-151243/checkpoint-1948'
 mistral_request = LoRARequest('default-lora', 1, mistral_checkpoint)
 
-model_type_mistral = ModelType.mistral_7b_instruct_v2
-mistral_engine = get_vllm_engine(model_type_mistral, 
+# model_type_mistral = ModelType.mistral_7b_instruct_v2
+# mistral_engine = get_vllm_engine(model_type_mistral, 
                                 
                                   enable_lora=True,model_id_or_path="/home/css/models/Mistral-7B-Instruct-v0.3",
                                  tensor_parallel_size=1,
@@ -109,22 +109,22 @@ model_openchat, tokenizer_openchat = get_model_tokenizer(model_type4, model_kwar
 # template_openchat = get_template(template_type4, tokenizer_openchat)
 
 # #openchat
-# openchat_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/openchat_3.5/v0-20240131-124616/checkpoint-1948'
-# openchat_request = LoRARequest('default-lora', 1, openchat_checkpoint)
+openchat_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/openchat_3.5/v0-20240131-124616/checkpoint-1948'
+openchat_request = LoRARequest('default-lora', 1, openchat_checkpoint)
 
-# model_type_openchat = custom.CustomModelType.openchat_35
-# openchat_engine = get_vllm_engine(model_type_openchat, 
-#                                   # torch.bfloat16, 
-#                                   enable_lora=True,model_id_or_path="/home/css/models/openchat-3.5-0106",
-#                                  tensor_parallel_size=1,
-#                                  engine_kwargs={"max_num_seqs": 128,
-#                                                 "seed": 42,},
+model_type_openchat = custom.CustomModelType.openchat_35
+openchat_engine = get_vllm_engine(model_type_openchat, 
+                                  # torch.bfloat16, 
+                                  enable_lora=True,model_id_or_path="/home/css/models/openchat-3.5-0106",
+                                 tensor_parallel_size=1,
+                                 engine_kwargs={"max_num_seqs": 128,
+                                                "seed": 42,},
 
-#                              max_loras=1, max_lora_rank=16)
-# template_type = get_default_template_type(model_type_openchat)
-# template = get_template(template_type, openchat_engine.hf_tokenizer)
-# # 与`transformers.GenerationConfig`类似的接口
-# openchat_engine.generation_config.max_new_tokens = 256
+                             max_loras=1, max_lora_rank=16)
+template_type = get_default_template_type(model_type_openchat)
+template = get_template(template_type, openchat_engine.hf_tokenizer)
+# 与`transformers.GenerationConfig`类似的接口
+openchat_engine.generation_config.max_new_tokens = 256
 
 
 #solar
@@ -219,8 +219,9 @@ for i in range(0,len(content_list)):
     # print(f'response: {response}')
     # result_mistral.append(response)
 
+
 resp_list = inference_vllm(
-    mistral_engine, template, request_list, lora_request=mistral_request,
+    openchat_engine, template, request_list, lora_request=openchat_request,
     generation_config=generation_config,
     use_tqdm=True
     )

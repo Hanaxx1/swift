@@ -1,15 +1,16 @@
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Tuple, Union
 
 import torch
 from torch import nn
 from transformers import PreTrainedModel, trainer
 from trl import DPOTrainer as HFDPOTrainer
 
-from swift.llm.utils.template import Context, Template
+from swift.llm.utils.template import Template
 from swift.llm.utils.utils import sort_by_max_length
 from swift.utils import get_logger
 from .callback import DefaultFlowCallbackNew, PrinterCallbackNew, ProgressCallbackNew
 from .mixin import PushToMsHubMixin, SwiftMixin
+from .utils import build_tokenized_answer, concat_template
 
 logger = get_logger()
 
@@ -39,56 +40,10 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
             self.perf['memory'][f'cuda:{i}'] = f'{torch.cuda.max_memory_reserved(i)/1024/1024/1024:.2f}GiB'
         return res
 
-    def concat_template(self, feature):
-        query: Optional[str] = feature.get('query', None)
-        system: Optional[str] = feature.get('system', None)
-        history: List = feature.get('history', [])
-        if system is None:
-            if self.template.use_default_system:
-                system = self.template.default_system
-        else:
-            assert self.template.prefix_has_system is not None, 'not support `system`'
-        res_context_list: List[Context] = []
-        compute_loss_idx: List[float] = []
-        if system is None:
-            assert self.template.prefix != self.template.prefix_has_system, f'template.prefix: {self.template.prefix}'
-            prefix = self.template.prefix
-        else:
-            prefix = self.template.prefix_has_system
-        self.template._concat_context_list(prefix, res_context_list, compute_loss_idx, system=system)
-        for i, (q, r) in enumerate(history):
-            self.template._concat_context_list(
-                [
-                    *self.template.prompt,
-                    '{{RESPONSE}}',
-                    *self.template.chat_sep  # noqa
-                ],
-                res_context_list,
-                compute_loss_idx,
-                query=q,
-                response=r,
-                round0=i)  # noqa
-        self.template._concat_context_list(
-            self.template.prompt, res_context_list, compute_loss_idx, query=query, round0=len(history))
-        res_context_list, compute_loss_idx = self.template._simplify_context_list(res_context_list, compute_loss_idx)
-
-        return res_context_list, feature['response'], feature['rejected_response'], compute_loss_idx
-
-    def build_tokenized_answer(self, prompt, answer, prompt_loss_scale):
-        input_ids, labels, loss_scale, kwargs = self.template._encode_context_list(prompt, prompt_loss_scale)
-        tgt_input_ids = self.template._encode_context_list([answer], [1.0])[0]
-        tgt_input_ids += self.template._encode_context_list(self.template.suffix, [1.0])[0]
-        return dict(
-            prompt_input_ids=input_ids,
-            prompt_attention_mask=[1] * len(input_ids),
-            input_ids=tgt_input_ids,
-            attention_mask=[1] * len(tgt_input_ids),
-        )
-
     def tokenize_row(self, feature, model: Union[PreTrainedModel, nn.Module] = None) -> Dict:
         batch = {}
         if not self.is_encoder_decoder:
-            prompt, chosen, rejected, loss_scale = self.concat_template(feature)
+            prompt, chosen, rejected, loss_scale = concat_template(feature, self.template)
 
             prompt_tokens, _, _, _ = self.template._encode_context_list(prompt, loss_scale)
             prompt_tokens = {
@@ -99,11 +54,14 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
 
             if not isinstance(chosen, str):
                 raise ValueError(f'chosen should be an str but got {type(chosen)}')
-            chosen_tokens = self.build_tokenized_answer(prompt, chosen, loss_scale)
+            chosen_tokens = build_tokenized_answer(chosen, self.template)
+            # Avoid tokenizing the prompt repeatedly.
+            chosen_tokens.update(prompt_tokens)
 
             if not isinstance(rejected, str):
                 raise ValueError(f'rejected should be an str but got {type(rejected)}')
-            rejected_tokens = self.build_tokenized_answer(prompt, rejected, loss_scale)
+            rejected_tokens = build_tokenized_answer(rejected, self.template)
+            rejected_tokens.update(prompt_tokens)
 
             longer_response_length = max(len(chosen_tokens['input_ids']), len(rejected_tokens['input_ids']))
 
@@ -224,7 +182,8 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
 
         if self.sft_beta > 0.:
             chosen_labels = concatenated_batch['concatenated_labels'][:batch['chosen_labels'].shape[0]]
-            sft_loss = -self.get_batch_logps(policy_chosen_logits, chosen_labels, average_log_prob=True)
+            sft_loss, size_completion = self.get_batch_logps(policy_chosen_logits, chosen_labels)
+            sft_loss = -sft_loss / size_completion
             if losses.shape[0] == 2 * sft_loss.shape[0]:
                 sft_loss = sft_loss.repeat(2, *sft_loss.shape[1:])
             losses = (1 - self.sft_beta) * losses + self.sft_beta * sft_loss
@@ -272,10 +231,9 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
             **model_kwargs,
         ).logits
 
-        all_logps = self.get_batch_logps(
+        all_logps, _ = self.get_batch_logps(
             all_logits,
             concatenated_batch['concatenated_labels'],
-            average_log_prob=False,
             is_encoder_decoder=self.is_encoder_decoder,
             label_pad_token_id=self.label_pad_token_id,
         )
@@ -286,7 +244,7 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
         chosen_logits = all_logits[:len_chosen]
         rejected_logits = all_logits[len_chosen:]
 
-        return (chosen_logps, rejected_logps, chosen_logits, rejected_logits, concatenated_batch)
+        return chosen_logps, rejected_logps, chosen_logits, rejected_logits, concatenated_batch
 
 
 # monkey patching
