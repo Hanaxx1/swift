@@ -17,10 +17,10 @@ from peft.utils.other import SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME
 from torch import nn
 from transformers import Trainer
 
-from swift import SwiftTuners
 from swift.utils.constants import DEFAULT_ADAPTER, SWIFT_TYPE_KEY
 from swift.utils.logger import get_logger
-from .. import PeftConfig, PeftModel, get_peft_model
+from .mapping import SwiftTuners
+from .peft import PeftConfig, PeftModel, get_peft_model
 from .utils import SwiftConfig, SwiftOutput
 
 logger = get_logger()
@@ -55,22 +55,32 @@ class SwiftModel(nn.Module):
             self.active_adapters = model.active_adapters
             model = model.base_model
 
+        self.base_model = model
         new_adapters = []
         if isinstance(config, SwiftConfig):
             if DEFAULT_ADAPTER not in self.adapters:
+                all_parts = self._deactivate_all_parts()
                 self.adapters[DEFAULT_ADAPTER] = self._prepare_model(model, config, DEFAULT_ADAPTER)
+                for part in all_parts:
+                    self.activate_adapter(part)
                 new_adapters.append(DEFAULT_ADAPTER)
+                if self.adapters[DEFAULT_ADAPTER].model is not None:
+                    self.base_model = self.adapters[DEFAULT_ADAPTER].model
             else:
                 logger.warn(f'Adapter {DEFAULT_ADAPTER} has been patched, skip.')
         elif isinstance(config, dict):
             assert (all(isinstance(c, SwiftConfig) for c in config.values()))
             for adapter_name, _config in config.items():
                 if adapter_name not in self.adapters:
+                    all_parts = self._deactivate_all_parts()
                     self.adapters[adapter_name] = self._prepare_model(model, _config, adapter_name)
+                    for part in all_parts:
+                        self.activate_adapter(part)
                     new_adapters.append(adapter_name)
+                    if self.adapters[adapter_name].model is not None:
+                        self.base_model = self.adapters[adapter_name].model
                 else:
                     logger.warn(f'Adapter {adapter_name} has been patched, skip.')
-        self.base_model = model
 
         self.extra_state_keys = extra_state_keys or []
         self.has_additional_modules = any([c.config.has_additional_modules for c in self.adapters.values()])
@@ -100,9 +110,18 @@ class SwiftModel(nn.Module):
     def model(self):
         return self.base_model
 
+    def _deactivate_all_parts(self):
+        deactivated = []
+        for adapter in self.active_adapters:
+            output = self.adapters[adapter]
+            if output.config.swift_type == SwiftTuners.PART:
+                deactivated.append(adapter)
+                self.deactivate_adapter(adapter)
+        return deactivated
+
     def load_state_dict(self, state_dict, strict=True, adapter_name: str = None):
         if adapter_name is not None:
-            output = self.adapters[adapter_name]
+            output: SwiftOutput = self.adapters[adapter_name]
             if getattr(output.config, 'modules_to_save', None):
                 for key, value in copy(state_dict).items():
                     for module_name in output.config.modules_to_save:
@@ -129,6 +148,9 @@ class SwiftModel(nn.Module):
                     state_dict.pop(key, None)
                     key = key.replace('lora_embedding_B.', f'lora_embedding_B.{adapter_name}.')
                 state_dict[key] = value
+
+            if output.load_state_dict_callback:
+                state_dict = output.load_state_dict_callback(self.base_model, adapter_name, state_dict)
 
         incompatible_keys = self.base_model.load_state_dict(state_dict, False)
         if incompatible_keys and len(incompatible_keys[1]) > 0:
@@ -329,9 +351,13 @@ class SwiftModel(nn.Module):
         for _name in adapter_name if isinstance(adapter_name,
                                                 list) else [adapter_name] \
                 if isinstance(adapter_name, str) else adapter_name.keys():
-            sub_folder = os.path.join(model_dir, _name)
-            state_dict = cls.load_state_file(sub_folder)
             _adapter = _name if not isinstance(adapter_name, dict) else adapter_name[_name]
+            output: SwiftOutput = self.adapters[_adapter]
+            sub_folder = os.path.join(model_dir, _name)
+            if output.load_callback:
+                output.load_callback(self, sub_folder, _adapter)
+                continue
+            state_dict = cls.load_state_file(sub_folder)
             if state_dict is not None:
                 model_is_qlora = len([
                     k for k in self.state_dict().keys()
@@ -550,24 +576,31 @@ class SwiftModel(nn.Module):
         for adapter_name, output in self.adapters.items():
             if adapter_names is not None and adapter_name not in adapter_names:
                 continue
+
             save_to_peft = peft_format and output.config.swift_type == SwiftTuners.LORA
             save_to_peft = save_to_peft and output.config.can_be_saved_to_peft()
             if peft_format and not save_to_peft:
                 logger.error('You are using additional lora parameters, which is not compatible with peft,'
                              'which is unable to save to peft format.')
-            # save only the trainable weights
-            output_state_dict = self.state_dict(
-                adapter_name=adapter_name, save_extra_states=False, peft_format=save_to_peft, **state_dict_kwargs)
             output_dir = os.path.join(save_directory,
                                       adapter_name) if adapter_name != 'default' or not save_to_peft else save_directory
-            os.makedirs(output_dir, exist_ok=True)
-            if output_state_dict and output.config.has_additional_modules:
-                self._save_state_dict(output_state_dict, output_dir, safe_serialization)
+
             if save_to_peft:
                 config = output.config.to_peft_config()
                 config.save_pretrained(output_dir)
             else:
                 output.config.save_pretrained(output_dir)
+
+            if output.save_callback:
+                output.save_callback(self, output_dir, adapter_name)
+                continue
+
+            # save only the trainable weights
+            output_state_dict = self.state_dict(
+                adapter_name=adapter_name, save_extra_states=False, peft_format=save_to_peft, **state_dict_kwargs)
+            os.makedirs(output_dir, exist_ok=True)
+            if output_state_dict and output.config.has_additional_modules:
+                self._save_state_dict(output_state_dict, output_dir, safe_serialization)
 
         output_state_dict = self.state_dict(save_extra_states=True, save_adapter=False, **state_dict_kwargs)
         if len(output_state_dict) > 0:

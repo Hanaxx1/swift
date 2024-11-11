@@ -1,4 +1,5 @@
 # Copyright (c) Alibaba, Inc. and its affiliates.
+import os
 
 
 def ta_accelerate(model,
@@ -27,8 +28,11 @@ def ta_accelerate(model,
         config.dist.fsdp.flatten_parameters = fsdp_flatten_parameters
         config.dist.dp.size = 1
 
+        if fsdp_num > 1:
+            os.environ['ACCELERATE_USE_FSDP'] = 'true'
+
         return config
 
     ta_config = get_ta_config()
-    model = ta.accelerate(model, ta_config)
+    model = ta.accelerate(model, config=ta_config)
     return model

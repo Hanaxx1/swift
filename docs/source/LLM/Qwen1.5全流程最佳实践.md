@@ -59,8 +59,8 @@ print(f'template_type: {template_type}')  # template_type: qwen
 
 kwargs = {}
 # kwargs['use_flash_attn'] = True  # 使用flash_attn
-
-model, tokenizer = get_model_tokenizer(model_type, torch.float16,
+model_id_or_path = None
+model, tokenizer = get_model_tokenizer(model_type, torch.float16, model_id_or_path=model_id_or_path,
                                        model_kwargs={'device_map': 'auto'}, **kwargs)
 # 修改max_new_tokens
 model.generation_config.max_new_tokens = 128
@@ -108,7 +108,8 @@ from swift.llm import (
 import torch
 
 model_type = ModelType.qwen1half_7b_chat_awq
-llm_engine = get_vllm_engine(model_type, torch.float16, max_model_len=4096)
+model_id_or_path = None
+llm_engine = get_vllm_engine(model_type, torch.float16, model_id_or_path=model_id_or_path, max_model_len=4096)
 template_type = get_default_template_type(model_type)
 template = get_template(template_type, llm_engine.hf_tokenizer)
 # 与`transformers.GenerationConfig`类似的接口
@@ -190,7 +191,6 @@ sft_args = SftArguments(
     model_type=ModelType.qwen1half_7b_chat,
     dataset=[f'{DatasetName.alpaca_zh}#500', f'{DatasetName.alpaca_en}#500',
              f'{DatasetName.self_cognition}#500'],
-    logging_steps=5,
     max_length=2048,
     learning_rate=1e-4,
     output_dir='output',
@@ -198,8 +198,8 @@ sft_args = SftArguments(
     model_name=['小黄', 'Xiao Huang'],
     model_author=['魔搭', 'ModelScope'])
 output = sft_main(sft_args)
-best_model_checkpoint = output['best_model_checkpoint']
-print(f'best_model_checkpoint: {best_model_checkpoint}')
+last_model_checkpoint = output['last_model_checkpoint']
+print(f'last_model_checkpoint: {last_model_checkpoint}')
 ```
 
 如果你想要在3090的机器中进行训练, 你可以**降低max_length**为1024, 使用模型并行, 或者使用deepspeed-zero3.
@@ -212,7 +212,6 @@ CUDA_VISIBLE_DEVICES=0,1 \
 swift sft \
     --model_type qwen1half-7b-chat \
     --dataset alpaca-zh#500 alpaca-en#500 self-cognition#500 \
-    --logging_steps 5 \
     --max_length 2048 \
     --learning_rate 1e-4 \
     --output_dir output \
@@ -230,7 +229,6 @@ NPROC_PER_NODE=4 \
 swift sft \
     --model_type qwen1half-7b-chat \
     --dataset alpaca-zh#500 alpaca-en#500 self-cognition#500 \
-    --logging_steps 5 \
     --max_length 2048 \
     --learning_rate 1e-4 \
     --output_dir output \
@@ -267,8 +265,8 @@ seed_everything(42)
 ckpt_dir = 'output/qwen1half-7b-chat/vx-xxx/checkpoint-xxx'
 model_type = ModelType.qwen1half_7b_chat
 template_type = get_default_template_type(model_type)
-
-model, tokenizer = get_model_tokenizer(model_type, model_kwargs={'device_map': 'auto'})
+model_id_or_path = None
+model, tokenizer = get_model_tokenizer(model_type, model_id_or_path=model_id_or_path, model_kwargs={'device_map': 'auto'})
 model.generation_config.max_new_tokens = 128
 
 model = Swift.from_pretrained(model, ckpt_dir, inference_mode=True)
@@ -479,7 +477,6 @@ NPROC_PER_NODE=4 \
 swift sft \
     --model_type qwen1half-72b-chat \
     --dataset alpaca-zh#500 alpaca-en#500 self-cognition#500 \
-    --logging_steps 5 \
     --max_length 4096 \
     --learning_rate 1e-4 \
     --output_dir output \

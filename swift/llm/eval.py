@@ -1,28 +1,30 @@
 # Copyright (c) Alibaba, Inc. and its affiliates.
 import asyncio
 import datetime as dt
-import multiprocessing as mp
+import multiprocessing
 import os
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
 import json
-from llmuses.config import TaskConfig
-from llmuses.constants import DEFAULT_ROOT_CACHE_DIR
-from llmuses.models.custom import CustomModel
-from llmuses.run import run_task
-from llmuses.summarizer import Summarizer
-from llmuses.utils import EvalBackend
-from modelscope import GenerationConfig
+from evalscope.backend.opencompass import OpenCompassBackendManager
+from evalscope.backend.vlm_eval_kit import VLMEvalKitBackendManager
+from evalscope.config import TaskConfig
+from evalscope.constants import DEFAULT_ROOT_CACHE_DIR
+from evalscope.models.custom import CustomModel
+from evalscope.run import run_task
+from evalscope.summarizer import Summarizer
+from evalscope.utils import EvalBackend
 from openai import APIConnectionError
 from tqdm import tqdm
+from transformers import GenerationConfig
 
 from swift.utils import append_to_jsonl, get_logger, get_main, seed_everything
 from .infer import merge_lora, prepare_model_template
 from .utils import DeployArguments, EvalArguments, XRequestConfig, inference, inference_client_async
 
 logger = get_logger()
-mp.set_start_method('spawn', force=True)
 
 
 class EvalModel(CustomModel):
@@ -33,6 +35,7 @@ class EvalModel(CustomModel):
                 merge_lora(args, device_map=args.merge_device_map)
             if args.infer_backend == 'vllm':
                 from .utils import prepare_vllm_engine_template
+
                 self.llm_engine, self.template = prepare_vllm_engine_template(args)
             else:
                 self.model, self.template = prepare_model_template(args)
@@ -42,11 +45,23 @@ class EvalModel(CustomModel):
         self.model_name = model_name
 
     @staticmethod
-    async def _call_openai(model_type: str, query: str, eval_url: str, *, is_chat_model: bool,
-                           request_config: XRequestConfig, prog_bar: tqdm) -> Tuple[str, Optional[int]]:
+    async def _call_openai(
+        model_type: str,
+        query: str,
+        eval_url: str,
+        *,
+        is_chat_model: bool,
+        request_config: XRequestConfig,
+        prog_bar: tqdm,
+    ) -> Tuple[str, Optional[int]]:
         # idx: maintain the order
         resp = await inference_client_async(
-            model_type, query, is_chat_request=is_chat_model, request_config=request_config, url=eval_url)
+            model_type,
+            query,
+            is_chat_request=is_chat_model,
+            request_config=request_config,
+            url=eval_url,
+        )
         if is_chat_model:
             response = resp.choices[0].message.content
         else:
@@ -67,7 +82,8 @@ class EvalModel(CustomModel):
                     self.args.eval_url,
                     is_chat_model=self.args.eval_is_chat_model,
                     request_config=request_config,
-                    prog_bar=prog_bar))
+                    prog_bar=prog_bar,
+                ))
         response_list: List[Optional[str]] = await asyncio.gather(*tasks)
         prog_bar.close()
         return response_list
@@ -91,20 +107,34 @@ class EvalModel(CustomModel):
 
         elif self.args.infer_backend == 'vllm':
             from .utils import inference_vllm, VllmGenerationConfig
+
             if do_sample is False:
                 infer_cfg['temperature'] = 0
+            max_new_tokens = infer_cfg.pop('max_new_tokens', None)
+            if max_new_tokens is not None:
+                infer_cfg['max_tokens'] = max_new_tokens
+            defaults = {'repetition_penalty': 1.0, 'top_p': 1.0, 'top_k': -1}
+            # Use default values to override None values
+            for key, default_value in defaults.items():
+                if infer_cfg.get(key) is None:
+                    infer_cfg[key] = default_value
             generation_config = VllmGenerationConfig(**infer_cfg)
 
             request_list = [{'query': prompt} for prompt in prompts]
             use_tqdm = True if len(request_list) >= 20 else False
             resp_list = inference_vllm(
-                self.llm_engine, self.template, request_list, generation_config=generation_config, use_tqdm=use_tqdm)
+                self.llm_engine,
+                self.template,
+                request_list,
+                generation_config=generation_config,
+                use_tqdm=use_tqdm,
+            )
             response_list = [resp['response'] for resp in resp_list]
         else:
             if do_sample is False:
                 # fix warning
-                infer_cfg['temperature'] = 1.
-                infer_cfg['top_p'] = 1.
+                infer_cfg['temperature'] = 1.0
+                infer_cfg['top_p'] = 1.0
                 infer_cfg['top_k'] = 50
             if do_sample is not None:
                 infer_cfg['do_sample'] = do_sample
@@ -113,7 +143,12 @@ class EvalModel(CustomModel):
             use_tqdm = True if len(prompts) >= 5 else False
             prog_bar = tqdm(total=len(prompts), dynamic_ncols=True, disable=not use_tqdm)
             for prompt in prompts:
-                response, _ = inference(self.model, self.template, prompt, generation_config=generation_config)
+                response, _ = inference(
+                    self.model,
+                    self.template,
+                    prompt,
+                    generation_config=generation_config,
+                )
                 response_list.append(response)
                 prog_bar.update()
             prog_bar.close()
@@ -125,7 +160,7 @@ class EvalModel(CustomModel):
                     'message': {
                         'content': response,
                         'role': 'assistant'
-                    }
+                    },
                 }],
                 'created': int(time.time()),
                 'model': self.model_name,
@@ -135,16 +170,18 @@ class EvalModel(CustomModel):
 
 
 def run_custom_model(args: EvalArguments):
-    from swift.llm.deploy import llm_deploy
+    from swift.llm import deploy_main
+
     port = args.port
     args = args.__dict__
     attrs = dir(DeployArguments)
     for key in list(args.keys()):
         if key not in attrs:
             args.pop(key)
+    args['verbose'] = False
     deploy_args = DeployArguments(**args)
     deploy_args.port = port
-    llm_deploy(deploy_args)
+    deploy_main(deploy_args)
 
 
 class EvalDatasetContext:
@@ -167,15 +204,19 @@ class EvalDatasetContext:
     @staticmethod
     def prepare_evalscope_dataset():
         from swift.llm.utils.media import MediaCache
+
         return MediaCache.download(
             'https://www.modelscope.cn/api/v1/datasets/swift/evalscope_resource/'
-            'repo?Revision=master&FilePath=eval.zip', 'evalscope')
+            'repo?Revision=master&FilePath=eval.zip',
+            'evalscope',
+        )
 
 
 def get_model_type(port, timeout):
     cnt = 0
     while True:
         from openai import OpenAI
+
         client = OpenAI(
             api_key='EMPTY',
             base_url=f'http://localhost:{port}/v1',
@@ -191,39 +232,7 @@ def get_model_type(port, timeout):
                 time.sleep(1)
 
 
-def eval_opencompass(args: EvalArguments) -> List[Dict[str, Any]]:
-    from llmuses.run import run_task
-    from swift.utils.torch_utils import _find_free_port
-    logger.info(f'args: {args}')
-    if args.eval_few_shot:
-        logger.warn('OpenCompass does not support `eval_few_shot`')
-    process = None
-    if not args.eval_url:
-        seed_everything(args.seed)
-        port = _find_free_port()
-        args.port = port
-        process = mp.Process(target=run_custom_model, args=(args, ))
-        process.start()
-
-        # health check: try to get model_type until raises
-        get_model_type(port, args.deploy_timeout)
-        model_type = 'default-lora' if args.sft_type in ('lora',
-                                                         'longlora') and not args.merge_lora else args.model_type
-        from .deploy import is_generation_template
-        if is_generation_template(args.template_type):
-            url = f'http://127.0.0.1:{port}/v1/completions'
-        else:
-            url = f'http://127.0.0.1:{port}/v1/chat/completions'
-        is_chat = not is_generation_template(args.template_type)
-    else:
-        url = args.eval_url
-        url = url.rstrip('/')
-        if args.eval_is_chat_model:
-            url += '/chat/completions'
-        else:
-            url += '/completions'
-        model_type = args.model_type
-        is_chat = args.eval_is_chat_model
+def opencompass_runner(args: EvalArguments, dataset: List[str], model_type: str, is_chat: bool, url: str):
     eval_limit = args.eval_limit
     if eval_limit is not None and '[' not in eval_limit:
         eval_limit = int(eval_limit)
@@ -231,35 +240,132 @@ def eval_opencompass(args: EvalArguments) -> List[Dict[str, Any]]:
     task_cfg = dict(
         eval_backend='OpenCompass',
         eval_config={
-            'datasets': args.eval_dataset,
-            'work_dir': args.eval_output_dir,
-            'reuse': 'latest' if args.eval_use_cache else None,
-            'batch_size': args.eval_batch_size,
+            'datasets':
+            dataset,
+            'reuse':
+            'latest' if args.eval_use_cache else None,
+            'batch_size':
+            args.eval_batch_size,
+            'work_dir':
+            args.eval_output_dir,
             'models': [
                 {
                     'path': model_type,
                     'openai_api_base': url,
                     'is_chat': is_chat,
                     'key': args.eval_token,
+                    'temperature': args.temperature,
                 },
             ],
-            **limit_config
+            **limit_config,
         },
     )
-
     with EvalDatasetContext():
         run_task(task_cfg=task_cfg)
 
-    final_report: List[dict] = Summarizer.get_report_from_cfg(task_cfg=task_cfg)
-    logger.info(f'Final report:{final_report}\n')
-    if process:
-        process.kill()
+    return Summarizer.get_report_from_cfg(task_cfg=task_cfg)
+
+
+def vlmeval_runner(args: EvalArguments, dataset: List[str], model_type: str, is_chat: bool, url: str):
+    eval_limit = args.eval_limit
+    if eval_limit is not None and '[' not in eval_limit:
+        eval_limit = int(eval_limit)
+    limit_config = {'limit': eval_limit} if eval_limit else {}
+    if args.eval_batch_size or args.eval_use_cache:
+        logger.warn('VLMEval does not support `eval_batch_size` or `eval_use_cache`')
+    task_cfg = dict(
+        eval_backend='VLMEvalKit',
+        eval_config={
+            'data':
+            dataset,
+            'work_dir':
+            args.eval_output_dir,
+            'model': [
+                {
+                    'name': 'CustomAPIModel',
+                    'api_base': url,
+                    'key': args.eval_token,
+                    'type': model_type,
+                    'temperature': args.temperature,
+                },
+            ],
+            **limit_config,
+            'nproc':
+            args.eval_nproc,
+        },
+    )
+    run_task(task_cfg=task_cfg)
+    return Summarizer.get_report_from_cfg(task_cfg=task_cfg)
+
+
+@contextmanager
+def deploy_context(args):
+    from swift.utils.torch_utils import _find_free_port
+
+    process = None
+    try:
+        if not args.eval_url:
+            port = _find_free_port()
+            args.port = port
+            mp = multiprocessing.get_context('spawn')
+            process = mp.Process(target=run_custom_model, args=(args, ))
+            process.start()
+        yield
+    finally:
+        if process is not None:
+            process.kill()
+            process.join()
+            logger.info('The deployment process has been terminated.')
+
+
+def eval_opencompass(args: EvalArguments) -> List[Dict[str, Any]]:
+    logger.info(f'args: {args}')
+    if args.eval_few_shot:
+        logger.warn('OpenCompass does not support `eval_few_shot`')
+    with deploy_context(args):
+        if not args.eval_url:
+            port = args.port
+            # health check: try to get model_type until raises
+            get_model_type(port, args.deploy_timeout)
+            model_type = ('default-lora'
+                          if args.sft_type in ('lora', 'longlora') and not args.merge_lora else args.model_type)
+            from .deploy import is_generation_template
+
+            if is_generation_template(args.template_type):
+                url = f'http://127.0.0.1:{port}/v1/completions'
+            else:
+                url = f'http://127.0.0.1:{port}/v1/chat/completions'
+            is_chat = not is_generation_template(args.template_type)
+        else:
+            url = args.eval_url
+            url = url.rstrip('/')
+            if args.eval_is_chat_model:
+                url += '/chat/completions'
+            else:
+                url += '/completions'
+            model_type = args.model_type
+            is_chat = args.eval_is_chat_model
+
+        nlp_datasets = set(OpenCompassBackendManager.list_datasets()) & set(args.eval_dataset)
+        mm_datasets = set(VLMEvalKitBackendManager.list_supported_datasets()) & set(args.eval_dataset)
+
+        final_report = []
+        for dataset, runner in zip(
+            [list(nlp_datasets), list(mm_datasets)],
+            [opencompass_runner, vlmeval_runner],
+        ):
+            if not dataset:
+                continue
+
+            report = runner(args, dataset, model_type, is_chat, url)
+            logger.info(f'Final report:{report}\n')
+            final_report.extend(report)
+    if not final_report:
+        raise ValueError(f'Cannot load final report, please check your dataset: {args.eval_dataset} and the eval log')
     return final_report
 
 
 def eval_llmuses(args: EvalArguments) -> List[Dict[str, Any]]:
-    logger.info(f'args: {args}')
-    seed_everything(args.seed)
     model_name = args.model_type
     tm = dt.datetime.now().strftime('%Y%m%d_%H%M%S')
     model_name += f'-{args.name or tm}'
@@ -270,11 +376,27 @@ def eval_llmuses(args: EvalArguments) -> List[Dict[str, Any]]:
             custom_eval = json.load(f)
             for _ds in custom_eval:
                 custom_names.append(_ds['name'])
-                TaskConfig.registry(_ds['name'], _ds['pattern'], _ds['dataset'], subset_list=_ds.get('subset_list'))
+                TaskConfig.registry(
+                    _ds['name'],
+                    _ds['pattern'],
+                    _ds['dataset'],
+                    subset_list=_ds.get('subset_list'),
+                )
     eval_model = EvalModel(args, model_name)
+
+    generation_config = {
+        'do_sample': args.do_sample,
+        'repetition_penalty': args.repetition_penalty,
+        'max_length': args.max_length,
+        'max_new_tokens': args.max_new_tokens,
+        'temperature': args.temperature,
+        'top_k': args.top_k,
+        'top_p': args.top_p,
+    }
 
     task_configs = TaskConfig.load(custom_model=eval_model, tasks=args.eval_dataset + custom_names)
     for task_config in task_configs:
+        task_config.generation_config = generation_config
         task_config.dataset_dir = DEFAULT_ROOT_CACHE_DIR
         task_config.use_cache = args.eval_use_cache
         if args.eval_limit is not None:
@@ -294,7 +416,7 @@ def eval_llmuses(args: EvalArguments) -> List[Dict[str, Any]]:
 
     result_dir = os.path.join(args.eval_output_dir, tm)
     if result_dir is None:
-        result_dir = eval_model.llm_engine.model_dir if args.infer_backend == 'vllm' else eval_model.model.model_dir
+        result_dir = (eval_model.llm_engine.model_dir if args.infer_backend == 'vllm' else eval_model.model.model_dir)
     assert result_dir is not None
     os.makedirs(result_dir, exist_ok=True)
     jsonl_path = os.path.join(result_dir, 'eval_result.jsonl')
@@ -311,6 +433,8 @@ def eval_llmuses(args: EvalArguments) -> List[Dict[str, Any]]:
 
 
 def llm_eval(args: EvalArguments) -> List[Dict[str, Any]]:
+    logger.info(f'args: {args}')
+    seed_everything(args.seed)
     args.eval_output_dir = os.path.join(args.eval_output_dir, args.name or 'default')
     if args.custom_eval_config:
         args.eval_backend = EvalBackend.NATIVE.value

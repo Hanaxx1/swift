@@ -183,7 +183,8 @@ class SCETuning(SwiftAdapter):
         def mark_trainable_callback(model):
             return
 
-        return SwiftOutput(config, state_dict_callback, mark_trainable_callback)
+        return SwiftOutput(
+            config=config, state_dict_callback=state_dict_callback, mark_trainable_callback=mark_trainable_callback)
 
     @staticmethod
     def activate_adapter(module: torch.nn.Module, adapter_name: str, activate: bool, offload: str = None):
@@ -223,6 +224,7 @@ class SCETunerModule(nn.Module, ActivationMixin):
                 act_layer=act_layer)
         else:
             raise Exception(f'Error tuner op {name}')
+        self.mark_all_sub_modules_as_plugin()
 
     def forward(self, x, x_shortcut=None, use_shortcut=True, **kwargs):
         if not self.is_activated(self.adapter_name):

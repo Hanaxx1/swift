@@ -132,7 +132,8 @@ class Prompt(SwiftAdapter):
         def mark_trainable_callback(model):
             return
 
-        return SwiftOutput(config, state_dict_callback, mark_trainable_callback)
+        return SwiftOutput(
+            config=config, state_dict_callback=state_dict_callback, mark_trainable_callback=mark_trainable_callback)
 
     @staticmethod
     def activate_adapter(module: torch.nn.Module, adapter_name: str, activate: bool, offload: str = None):
@@ -169,6 +170,7 @@ class PromptModule(nn.Module, ActivationMixin):
         self.attach_front = attach_front
         self.prompt_token = nn.Parameter(torch.zeros(1, prompt_length, dim))
         nn.init.xavier_uniform_(self.prompt_token)
+        self.mark_all_sub_modules_as_plugin()
 
     def forward(self, x):
         if not self.is_activated(self.adapter_name):

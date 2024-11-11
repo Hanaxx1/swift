@@ -117,7 +117,8 @@ class Adapter(SwiftAdapter):
         def mark_trainable_callback(model):
             return
 
-        return SwiftOutput(config, state_dict_callback, mark_trainable_callback)
+        return SwiftOutput(
+            config=config, state_dict_callback=state_dict_callback, mark_trainable_callback=mark_trainable_callback)
 
     @staticmethod
     def activate_adapter(module: torch.nn.Module, adapter_name: str, activate: bool, offload: str = None):
@@ -159,6 +160,7 @@ class AdapterModule(nn.Module, ActivationMixin):
         self.linear2 = nn.Linear(adapter_length, dim)
         self.init_weights()
         self._prepared = False
+        self.mark_all_sub_modules_as_plugin()
 
     def init_weights(self):
 
