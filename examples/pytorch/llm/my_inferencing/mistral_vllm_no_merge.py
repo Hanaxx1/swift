@@ -47,15 +47,15 @@ model_dir7 = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/openchat
 #solar
 model_dir8 = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10.7b-instruct/v1-20240218-003119/checkpoint-1948'
 
-
-#mistral
+# enable_lora=True,model_id_or_path="/home/css/models/Mistral-7B-Instruct-v0.3",
+# mistral
 mistral_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/mistral-7b-chat-v2/v10-20240120-151243/checkpoint-1948'
 mistral_request = LoRARequest('default-lora', 1, mistral_checkpoint)
 
 model_type_mistral = ModelType.mistral_7b_instruct_v2
 mistral_engine = get_vllm_engine(model_type_mistral, 
                                 
-                                  enable_lora=True,model_id_or_path="/home/css/models/Mistral-7B-Instruct-v0.2",
+                                  enable_lora=True,model_id_or_path="/home/css/models/Mistral-7B-Instruct-v0.3",
                                  tensor_parallel_size=1,
                                  engine_kwargs={
                                      "max_num_seqs": 128,
@@ -136,7 +136,7 @@ model_openchat, tokenizer_openchat = get_model_tokenizer(model_type4, model_kwar
 # template_solar = get_template(template_type5, tokenizer_solar)
 
 #solar
-# solar_checkpoint = '/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10.7b-instruct/v1-20240218-003119/checkpoint-1948'
+# solar_checkpoint = '/data/home/qiuyang/workplace/swift/examples/pytorch/llm/output/solar-10.7b-instruct/v1-20240218-003119/checkpoint-1948'
 # solar_request = LoRARequest('default-lora', 1, solar_checkpoint)
 
 # model_type_solar = custom.CustomModelType.solar_instruct_10_7b
@@ -182,7 +182,7 @@ content_list = []
 # count = 0
 # 打开JSON文件
 line_count = 1
-with open('/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data/news_data/noclean_c4/c4_data_noclean29.json', 'r') as file:
+with open('/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data/news_data/noclean/c4_data_noclean40.json', 'r') as file:
     # 逐行读取文件内容
     for line in file:
         # 解析JSON数据
@@ -218,6 +218,7 @@ for i in range(0,len(content_list)):
     # print(f'query: {query}')
     # print(f'response: {response}')
     # result_mistral.append(response)
+
 resp_list = inference_vllm(
     mistral_engine, template, request_list, lora_request=mistral_request,
     generation_config=generation_config,
@@ -229,7 +230,7 @@ for i in range(0,len(resp_list)):
     result_mistral.append(response)
 
 # 指定本地文件路径
-file_path = '/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data_siyuanzu/mistral_list_noclean29.json'
+file_path = '/data/home/qiuyang/workplace/swift/examples/pytorch/llm/my_data/data_siyuanzu/mistral_list_noclean40.json'
 
 # 将数据写入本地文件
 with open(file_path, 'w') as file:

@@ -1,5 +1,5 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 from transformers import AutoModelForCausalLM, AutoTokenizer # type: ignore
 from peft import PeftModel, PeftConfig
 import torch
